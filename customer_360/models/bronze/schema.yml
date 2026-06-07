@@ -1,0 +1,60 @@
+version: 2
+
+models:
+  - name: bronze_customer_raw
+    columns:
+      - name: customer_id
+        tests:
+          - not_null
+          - unique
+      - name: email
+        tests:
+          - not_null
+      - name: _ingested_at
+        tests:
+          - not_null
+
+  - name: bronze_product_enrollments
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+          - unique
+      - name: customer_id
+        tests:
+          - not_null
+      - name: _ingested_at
+        tests:
+          - not_null
+
+  - name: bronze_crm_transactions
+    columns:
+      - name: interaction_id
+        tests:
+          - not_null
+          - unique
+      - name: customer_id
+        tests:
+          - not_null
+      - name: _ingested_at
+        tests:
+          - not_null
+
+  - name: bronze_transaction_history
+    columns:
+      - name: transaction_id
+        tests:
+          - not_null
+          - unique
+      - name: customer_id
+        tests:
+          - not_null
+      - name: product_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('bronze_product_enrollments')
+              field: product_id
+      - name: _ingested_at
+        tests:
+          - not_null

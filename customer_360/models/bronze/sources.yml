@@ -1,0 +1,15 @@
+version: 2
+
+sources:
+  - name: customer_360_db
+    database: workspace
+    schema: customer_360_db
+    loaded_at_field: _ingested_at
+    freshness:
+      warn_after: {count: 24, period: hour}
+      error_after: {count: 48, period: hour}
+    tables:
+      - name: customer_raw
+      - name: product_enrollments
+      - name: crm_transactions
+      - name: transaction_history

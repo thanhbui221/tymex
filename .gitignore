@@ -1,1 +1,22 @@
-./data
+data
+.env
+notes.md
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+**/terraform.tfvars
+crash.log
+crash.*.log
+
+# Terraform override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+**/.terraform.lock.hcl
+
+docs
+logs
