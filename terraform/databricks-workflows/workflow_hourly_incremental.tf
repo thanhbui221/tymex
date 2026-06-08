@@ -9,12 +9,12 @@ resource "databricks_job" "hourly_incremental_refresh" {
   }
 
   task {
-    task_key = "refresh_silver_interactions"
+    task_key = "build_silver_interactions"
 
     notebook_task {
       notebook_path = "${var.dbt_project_path}/run_dbt.py"
       base_parameters = {
-        dbt_command = "run --select silver_customer_interactions"
+        dbt_command = "build --select silver_customer_interactions"
       }
     }
 
@@ -23,12 +23,12 @@ resource "databricks_job" "hourly_incremental_refresh" {
   }
 
   task {
-    task_key = "refresh_silver_transactions"
+    task_key = "build_silver_transactions"
 
     notebook_task {
       notebook_path = "${var.dbt_project_path}/run_dbt.py"
       base_parameters = {
-        dbt_command = "run --select silver_customer_transactions"
+        dbt_command = "build --select silver_customer_transactions"
       }
     }
 
@@ -37,18 +37,18 @@ resource "databricks_job" "hourly_incremental_refresh" {
   }
 
   task {
-    task_key = "refresh_gold_customer_360"
+    task_key = "build_gold_customer_360"
     depends_on {
-      task_key = "refresh_silver_interactions"
+      task_key = "build_silver_interactions"
     }
     depends_on {
-      task_key = "refresh_silver_transactions"
+      task_key = "build_silver_transactions"
     }
 
     notebook_task {
       notebook_path = "${var.dbt_project_path}/run_dbt.py"
       base_parameters = {
-        dbt_command = "run --select customer_360"
+        dbt_command = "build --select customer_360"
       }
     }
 
@@ -57,15 +57,17 @@ resource "databricks_job" "hourly_incremental_refresh" {
   }
 
   task {
-    task_key = "test_customer_360"
+    task_key = "test_business_rules"
     depends_on {
-      task_key = "refresh_gold_customer_360"
+      task_key = "build_gold_customer_360"
     }
 
     notebook_task {
       notebook_path = "${var.dbt_project_path}/run_dbt.py"
       base_parameters = {
-        dbt_command = "test --select customer_360"
+        # Singular tests are standalone DAG nodes — not picked up by model name selectors.
+        # Must be selected explicitly by test_type.
+        dbt_command = "test --select test_type:singular"
       }
     }
 

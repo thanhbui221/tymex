@@ -5,11 +5,15 @@ models:
     columns:
       - name: customer_id
         tests:
-          - not_null
           - unique
+          - not_null
       - name: email
         tests:
           - not_null
+      - name: gender
+        tests:
+          - accepted_values:
+              values: ['Male', 'Female']
       - name: _ingested_at
         tests:
           - not_null
@@ -18,11 +22,19 @@ models:
     columns:
       - name: product_id
         tests:
-          - not_null
           - unique
+          - not_null
       - name: customer_id
         tests:
           - not_null
+          - relationships:
+              to: ref('bronze_customer_raw')
+              field: customer_id
+      - name: product_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Savings', 'Credit Card']
       - name: _ingested_at
         tests:
           - not_null
@@ -31,11 +43,19 @@ models:
     columns:
       - name: interaction_id
         tests:
-          - not_null
           - unique
+          - not_null
       - name: customer_id
         tests:
           - not_null
+          - relationships:
+              to: ref('bronze_customer_raw')
+              field: customer_id
+      - name: interaction_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Email', 'Chat', 'Call']
       - name: _ingested_at
         tests:
           - not_null
@@ -44,11 +64,14 @@ models:
     columns:
       - name: transaction_id
         tests:
-          - not_null
           - unique
+          - not_null
       - name: customer_id
         tests:
           - not_null
+          - relationships:
+              to: ref('bronze_customer_raw')
+              field: customer_id
       - name: product_id
         tests:
           - not_null

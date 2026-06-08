@@ -32,14 +32,14 @@ SELECT
 
     -- transactions
     COALESCE(t.total_transactions, 0)             AS total_transactions,
+    COALESCE(t.debit_count, 0)                    AS debit_count,
+    COALESCE(t.credit_count, 0)                   AS credit_count,
     t.total_transaction_value,
     t.avg_transaction_amount,
+    t.max_balance,
+    t.min_balance,
     t.last_transaction_date,
     t.days_since_last_transaction,
-    COALESCE(t.credit_card_transaction_value, 0)  AS credit_card_transaction_value,
-    COALESCE(t.savings_transaction_value, 0)      AS savings_transaction_value,
-    COALESCE(t.credit_card_transaction_count, 0)  AS credit_card_transaction_count,
-    COALESCE(t.savings_transaction_count, 0)      AS savings_transaction_count,
 
     -- business logic
     CASE

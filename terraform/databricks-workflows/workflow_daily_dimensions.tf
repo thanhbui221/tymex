@@ -9,12 +9,12 @@ resource "databricks_job" "daily_dimensions_refresh" {
   }
 
   task {
-    task_key = "refresh_silver_customers"
+    task_key = "build_silver_customers"
 
     notebook_task {
       notebook_path = "${var.dbt_project_path}/run_dbt.py"
       base_parameters = {
-        dbt_command = "run --select silver_customers --full-refresh"
+        dbt_command = "build --select silver_customers --full-refresh"
       }
     }
 
@@ -23,37 +23,20 @@ resource "databricks_job" "daily_dimensions_refresh" {
   }
 
   task {
-    task_key = "refresh_silver_products"
+    task_key = "build_silver_products"
     depends_on {
-      task_key = "refresh_silver_customers"
+      task_key = "build_silver_customers"
     }
 
     notebook_task {
       notebook_path = "${var.dbt_project_path}/run_dbt.py"
       base_parameters = {
-        dbt_command = "run --select silver_customer_products --full-refresh"
+        dbt_command = "build --select silver_customer_products --full-refresh"
       }
     }
 
     timeout_seconds = 3600
     max_retries     = 2
-  }
-
-  task {
-    task_key = "test_silver_layer"
-    depends_on {
-      task_key = "refresh_silver_products"
-    }
-
-    notebook_task {
-      notebook_path = "${var.dbt_project_path}/run_dbt.py"
-      base_parameters = {
-        dbt_command = "test --select silver_customers silver_customer_products"
-      }
-    }
-
-    timeout_seconds = 1800
-    max_retries     = 1
   }
 
   email_notifications {

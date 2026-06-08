@@ -1,0 +1,63 @@
+version: 2
+
+models:
+  - name: customer_360
+    description: >
+      Unified customer 360 view. One row per customer. Gold layer joining all
+      silver models — demographics, product holdings, CRM interactions, and
+      financial transactions.
+    columns:
+      # Uniqueness & integrity
+      - name: customer_id
+        description: "Unique customer identifier"
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('silver_customers')
+              field: customer_id
+
+      # Completeness
+      - name: first_name
+        tests:
+          - not_null
+      - name: last_name
+        tests:
+          - not_null
+      - name: email
+        tests:
+          - not_null
+      - name: age
+        description: "Age derived from date_of_birth. Must be >= 0."
+        tests:
+          - not_null
+      - name: days_since_signup
+        description: "Days since signup_date. Must be >= 0."
+        tests:
+          - not_null
+      - name: total_products
+        description: "Total enrolled products. 0 for customers with no enrollments."
+        tests:
+          - not_null
+      - name: total_interactions
+        description: "Total CRM interactions. 0 for customers with no CRM history."
+        tests:
+          - not_null
+      - name: total_transactions
+        description: "Total financial transactions. 0 for customers with no transaction history."
+        tests:
+          - not_null
+
+      # Accepted values — categorical fields
+      - name: customer_status
+        description: "Active if interaction or transaction within 90 days, otherwise Inactive"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Active', 'Inactive']
+      - name: customer_segment
+        description: "Premium (3+ products AND >100k tx value), Standard (2+ products), Basic (all others)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Premium', 'Standard', 'Basic']

@@ -1,0 +1,81 @@
+version: 2
+
+models:
+  - name: silver_customers
+    description: "Cleaned and standardised customer demographics. One row per customer."
+    columns:
+      - name: customer_id
+        tests:
+          - unique
+          - not_null
+      - name: email
+        description: "Lowercase-trimmed email. Expected unique per customer — failures stored in audit table for investigation."
+        tests:
+          - not_null
+          - unique
+      - name: first_name
+        tests:
+          - not_null
+      - name: last_name
+        tests:
+          - not_null
+      - name: age
+        tests:
+          - not_null
+      - name: days_since_signup
+        tests:
+          - not_null
+
+  - name: silver_customer_products
+    description: "Aggregated product holdings per customer. One row per customer."
+    columns:
+      - name: customer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('silver_customers')
+              field: customer_id
+      - name: total_products
+        tests:
+          - not_null
+      - name: credit_card_count
+        tests:
+          - not_null
+      - name: savings_count
+        tests:
+          - not_null
+
+  - name: silver_customer_interactions
+    description: "Aggregated CRM interaction metrics per customer. One row per customer."
+    columns:
+      - name: customer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('silver_customers')
+              field: customer_id
+      - name: total_interactions
+        tests:
+          - not_null
+      - name: last_interaction_date
+        tests:
+          - not_null
+
+  - name: silver_customer_transactions
+    description: "Aggregated financial transaction metrics per customer. One row per customer."
+    columns:
+      - name: customer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('silver_customers')
+              field: customer_id
+      - name: total_transactions
+        tests:
+          - not_null
+      - name: last_transaction_date
+        tests:
+          - not_null
