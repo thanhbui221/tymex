@@ -1,6 +1,8 @@
 # Data Lineage
 
-Visual diagram: [`data_lineage.svg`](data_lineage.svg)
+Visual diagram:
+
+![Data Lineage](data_lineage.svg)
 
 The diagram is color-coded by layer (grey = source, orange = bronze, blue = silver, yellow = gold) and shows materialization type and ingestion frequency on each node.
 

@@ -2,7 +2,9 @@
 
 ## 1. Entity Relationship Diagram (Source Layer)
 
-Diagram: [`erd.svg`](erd.svg)
+Diagram:
+
+![ERD](erd.svg)
 
 The ERD covers all four source tables with column names, data types, PK/FK markers (🔑/🔗), and crow's foot cardinality lines (1:N).
 

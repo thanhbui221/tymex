@@ -1,6 +1,8 @@
 # Design Decisions
 
-Architecture diagram: [`architecture.svg`](architecture.svg)
+Architecture diagram:
+
+![Architecture](architecture.svg)
 
 The diagram covers the full pipeline: source systems → ingestion → Bronze/Silver/Gold (Delta Lake) → consumers, plus the orchestration layer (four Databricks Workflow jobs provisioned by Terraform) and where dbt tests fire.
 
