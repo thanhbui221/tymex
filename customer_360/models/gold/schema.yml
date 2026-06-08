@@ -61,3 +61,57 @@ models:
           - not_null
           - accepted_values:
               values: ['Premium', 'Standard', 'Basic']
+
+      # Interaction channel breakdown
+      - name: email_interactions
+        description: "Count of CRM interactions via email. 0 for customers with no email interactions."
+        tests:
+          - not_null
+      - name: chat_interactions
+        description: "Count of CRM interactions via chat. 0 for customers with no chat interactions."
+        tests:
+          - not_null
+
+      # Transaction product-type breakdown
+      - name: credit_card_transaction_value
+        description: "Net transaction value across credit card products. 0 for customers with no credit card transactions."
+        tests:
+          - not_null
+      - name: savings_transaction_value
+        description: "Net transaction value across savings products. 0 for customers with no savings transactions."
+        tests:
+          - not_null
+      - name: credit_card_transaction_count
+        description: "Number of transactions on credit card products. 0 for customers with no credit card transactions."
+        tests:
+          - not_null
+      - name: savings_transaction_count
+        description: "Number of transactions on savings products. 0 for customers with no savings transactions."
+        tests:
+          - not_null
+      - name: current_balance
+        description: "Closing balance from the most recent transaction. NULL for customers with no transactions."
+
+      # Derived metrics
+      - name: credit_utilization
+        description: "ABS(credit_card_transaction_value) / max_credit_limit. NULL for savings-only or zero-limit customers."
+      - name: monthly_transaction_frequency
+        description: "Total transactions normalised to a 30-day window (total_transactions * 30 / days_since_signup). NULL for day-0 customers."
+      - name: customer_lifecycle_stage
+        description: "Tenure bucket: New (<90d), Growing (90–364d), Established (1–3yr), Mature (3yr+)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['New', 'Growing', 'Established', 'Mature']
+      - name: has_credit_card
+        description: "TRUE if the customer holds at least one credit card product."
+        tests:
+          - not_null
+      - name: has_savings
+        description: "TRUE if the customer holds at least one savings product."
+        tests:
+          - not_null
+      - name: is_multi_product
+        description: "TRUE if the customer holds 2 or more products."
+        tests:
+          - not_null

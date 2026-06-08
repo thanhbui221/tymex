@@ -24,10 +24,13 @@ SELECT
     COALESCE(p.savings_count, 0)             AS savings_count,
     p.max_credit_limit,
     p.first_product_date,
+    p.latest_product_date,
 
     -- interactions
     i.last_interaction_date,
     COALESCE(i.total_interactions, 0)        AS total_interactions,
+    COALESCE(i.email_interactions, 0)        AS email_interactions,
+    COALESCE(i.chat_interactions, 0)         AS chat_interactions,
     i.days_since_last_interaction,
 
     -- transactions
@@ -38,8 +41,13 @@ SELECT
     t.avg_transaction_amount,
     t.max_balance,
     t.min_balance,
+    t.current_balance,
     t.last_transaction_date,
     t.days_since_last_transaction,
+    COALESCE(t.credit_card_transaction_value, 0)  AS credit_card_transaction_value,
+    COALESCE(t.savings_transaction_value, 0)      AS savings_transaction_value,
+    COALESCE(t.credit_card_transaction_count, 0)  AS credit_card_transaction_count,
+    COALESCE(t.savings_transaction_count, 0)      AS savings_transaction_count,
 
     -- business logic
     CASE
@@ -54,6 +62,26 @@ SELECT
         WHEN COALESCE(p.total_products, 0) >= 2  THEN 'Standard'
         ELSE 'Basic'
     END AS customer_segment,
+
+    -- derived metrics
+    CASE WHEN COALESCE(p.max_credit_limit, 0) > 0
+         THEN ABS(t.credit_card_transaction_value) / p.max_credit_limit
+    END AS credit_utilization,
+
+    CASE WHEN c.days_since_signup > 0
+         THEN COALESCE(t.total_transactions, 0) * 30.0 / c.days_since_signup
+    END AS monthly_transaction_frequency,
+
+    CASE
+        WHEN c.days_since_signup < 90   THEN 'New'
+        WHEN c.days_since_signup < 365  THEN 'Growing'
+        WHEN c.days_since_signup < 1095 THEN 'Established'
+        ELSE 'Mature'
+    END AS customer_lifecycle_stage,
+
+    CASE WHEN COALESCE(p.credit_card_count, 0) > 0 THEN TRUE ELSE FALSE END AS has_credit_card,
+    CASE WHEN COALESCE(p.savings_count, 0) > 0     THEN TRUE ELSE FALSE END AS has_savings,
+    CASE WHEN COALESCE(p.total_products, 0) >= 2   THEN TRUE ELSE FALSE END AS is_multi_product,
 
     -- separate watermarks per silver source to avoid cross-contamination
     COALESCE(i._ingested_at, CAST('1970-01-01' AS TIMESTAMP)) AS _interactions_ingested_at,

@@ -17,6 +17,7 @@ SELECT
     MIN(CAST(t.closing_balance AS DECIMAL(12,2)))           AS min_balance,
     MAX(t.transaction_date)                                 AS last_transaction_date,
     DATEDIFF(DAY, MAX(t.transaction_date), CURRENT_DATE())  AS days_since_last_transaction,
+    MAX_BY(CAST(t.closing_balance AS DECIMAL(12,2)), t.transaction_date) AS current_balance,
 
     -- product-type breakdowns via product_id FK → product_enrollments
     SUM(CASE WHEN UPPER(TRIM(pe.product_type)) = 'CREDIT CARD'
