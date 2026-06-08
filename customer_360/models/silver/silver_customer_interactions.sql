@@ -16,7 +16,16 @@ SELECT
     MAX(_ingested_at) AS _ingested_at
 FROM {{ ref('bronze_crm_transactions') }}
 WHERE interaction_id IS NOT NULL
-{% if is_incremental() %}
+{% if var('backfill_start', '') | trim != '' %}
+    AND customer_id IN (
+        SELECT DISTINCT customer_id
+        FROM {{ ref('bronze_crm_transactions') }}
+        WHERE _ingested_at >= '{{ var("backfill_start") }}'
+        {% if var('backfill_end', '') | trim != '' %}
+            AND _ingested_at < '{{ var("backfill_end") }}'
+        {% endif %}
+    )
+{% elif is_incremental() %}
     AND _ingested_at > (SELECT MAX(_ingested_at) FROM {{ this }})
 {% endif %}
 GROUP BY customer_id

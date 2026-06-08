@@ -1,6 +1,8 @@
 # Data Lineage
 
-Visual diagram: [`docs/data_lineage.drawio`](data_lineage.drawio) — open with [diagrams.net](https://app.diagrams.net/) or the VS Code Draw.io extension.
+Visual diagram: [`data_lineage.drawio`](data_lineage.drawio) (editable) · [`data_lineage.drawio.svg`](data_lineage.drawio.svg) (rendered) — open with [diagrams.net](https://app.diagrams.net/) or the VS Code Draw.io extension.
+
+![Data Lineage](data_lineage.drawio.svg)
 
 The diagram is color-coded by layer (grey = source, orange = bronze, blue = silver, yellow = gold) and shows materialization type and ingestion frequency on each node.
 

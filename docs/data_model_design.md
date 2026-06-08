@@ -2,7 +2,9 @@
 
 ## 1. Entity Relationship Diagram (Source Layer)
 
-Diagram: [`docs/erd.drawio`](erd.drawio) — open with [diagrams.net](https://app.diagrams.net/) or the VS Code Draw.io extension.
+Diagram: [`erd.drawio`](erd.drawio) (editable) · [`erd.drawio.svg`](erd.drawio.svg) (rendered) — open with [diagrams.net](https://app.diagrams.net/) or the VS Code Draw.io extension.
+
+![ERD](erd.drawio.svg)
 
 The ERD covers all four source tables with column names, data types, PK/FK markers (🔑/🔗), and crow's foot cardinality lines (1:N).
 

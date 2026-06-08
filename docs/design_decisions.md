@@ -1,5 +1,11 @@
 # Design Decisions
 
+Architecture diagram: [`architecture.drawio`](architecture.drawio) (editable) · [`architecture.drawio.svg`](architecture.drawio.svg) (rendered) — open with [diagrams.net](https://app.diagrams.net/) or the VS Code Draw.io extension.
+
+![Architecture](architecture.drawio.svg)
+
+The diagram covers the full pipeline: source systems → ingestion → Bronze/Silver/Gold (Delta Lake) → consumers, plus the orchestration layer (four Databricks Workflow jobs provisioned by Terraform) and where dbt tests fire.
+
 ---
 
 ## 1. Medallion Architecture (Bronze → Silver → Gold)
@@ -117,3 +123,47 @@ See [`data_quality.md`](data_quality.md) Issue 2.
 **Trade-off**: `dbt build` is a harder failure mode — a flaky test will block the entire downstream refresh. Teams that prefer soft failures (build everything, alert but don't block) should use `dbt run` + `dbt test` explicitly. For this pipeline, data correctness takes priority over refresh availability.
 
 See [`databricks-workflows/`](../terraform/databricks-workflows/) for the Terraform implementation.
+
+---
+
+## 9. Separate Backfill Pipeline
+
+**Decision**: A dedicated backfill Databricks job exists alongside the hourly and daily production jobs. It is `PAUSED` by default and triggered manually (or via CI) — never on a schedule.
+
+**When to trigger:**
+- Bug fix in transformation logic that affects historical records
+- Business rule change (e.g. segmentation thresholds updated)
+- Source data correction upstream
+- New column added to an incremental silver model
+- Initial historical load on first deployment
+
+**Why not Lambda architecture**: Lambda would maintain a separate batch layer running the same transformations on a slower cadence. That means two codepaths to maintain, two sets of results to reconcile, and two places for logic to diverge. The backfill job uses the exact same dbt models as production — there is no separate batch layer.
+
+**Why not pure Kappa architecture**: Pure Kappa replays raw events through the same streaming pipeline for both real-time and historical reprocessing. This works cleanly for event-level models but breaks down here because silver models aggregate to customer grain (`GROUP BY customer_id`). Replaying only new events cannot correctly recompute aggregates for customers whose historical records are affected — a full recompute per customer is always required. Storing pre-aggregation raw events in silver to enable true event replay would add complexity without benefit given the current grain.
+
+**Mechanism**: The backfill job accepts two parameters at trigger time — `backfill_start` (inclusive) and `backfill_end` (exclusive).
+
+| Parameters provided | Behaviour |
+|---|---|
+| `backfill_start` + `backfill_end` | Windowed backfill — identifies affected `customer_id`s from the window, recomputes full history for those customers, merges. Unaffected customers untouched. |
+| Neither | Full refresh — drops and rebuilds the entire table from scratch. Nuclear option for schema changes or initial loads. |
+
+```sql
+-- Pattern in silver incremental models
+{% if var('backfill_start', '') | trim != '' %}
+    AND customer_id IN (
+        SELECT DISTINCT customer_id FROM {{ ref('bronze_...') }}
+        WHERE _ingested_at >= '{{ var("backfill_start") }}'
+          AND _ingested_at <  '{{ var("backfill_end") }}'
+    )
+{% elif is_incremental() %}
+    AND _ingested_at > (SELECT MAX(_ingested_at) FROM {{ this }})
+{% endif %}
+-- No branch = full refresh (dbt handles via --full-refresh flag)
+```
+
+`silver_customers` and `silver_customer_products` are excluded — they are full-refresh tables rebuilt by the daily job and do not need backfill.
+
+**Why trace to exact date rather than always full-refresh**: Full refresh reprocesses 887k+ transactions regardless of how many records were actually affected. In production, a bug is typically traced to a specific ingestion batch — backfilling only that window is faster, leaves unaffected customers untouched, and reduces the blast radius if the backfill itself has an issue.
+
+See [`workflow_backfill.tf`](../terraform/databricks-workflows/workflow_backfill.tf) for the Terraform implementation.

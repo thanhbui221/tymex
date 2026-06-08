@@ -30,7 +30,16 @@ SELECT
 FROM {{ ref('bronze_transaction_history') }} t
 LEFT JOIN {{ ref('bronze_product_enrollments') }} pe ON t.product_id = pe.product_id
 WHERE t.transaction_id IS NOT NULL
-{% if is_incremental() %}
+{% if var('backfill_start', '') | trim != '' %}
+    AND t.customer_id IN (
+        SELECT DISTINCT customer_id
+        FROM {{ ref('bronze_transaction_history') }}
+        WHERE _ingested_at >= '{{ var("backfill_start") }}'
+        {% if var('backfill_end', '') | trim != '' %}
+            AND _ingested_at < '{{ var("backfill_end") }}'
+        {% endif %}
+    )
+{% elif is_incremental() %}
     AND t._ingested_at > (SELECT MAX(_ingested_at) FROM {{ this }})
 {% endif %}
 GROUP BY t.customer_id

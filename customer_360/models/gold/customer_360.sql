@@ -64,7 +64,18 @@ LEFT JOIN {{ ref('silver_customer_products') }}     p ON c.customer_id = p.custo
 LEFT JOIN {{ ref('silver_customer_interactions') }} i ON c.customer_id = i.customer_id
 LEFT JOIN {{ ref('silver_customer_transactions') }} t ON c.customer_id = t.customer_id
 
-{% if is_incremental() %}
+{% if var('backfill_start', '') | trim != '' %}
+WHERE (
+    i._ingested_at >= '{{ var("backfill_start") }}'
+    OR t._ingested_at >= '{{ var("backfill_start") }}'
+)
+{% if var('backfill_end', '') | trim != '' %}
+AND (
+    i._ingested_at < '{{ var("backfill_end") }}'
+    OR t._ingested_at < '{{ var("backfill_end") }}'
+)
+{% endif %}
+{% elif is_incremental() %}
 WHERE
     i._ingested_at > (SELECT COALESCE(MAX(_interactions_ingested_at), CAST('1970-01-01' AS TIMESTAMP)) FROM {{ this }})
     OR
