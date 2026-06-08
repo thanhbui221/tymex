@@ -13,7 +13,7 @@ customer_360/
     │   ├── schema.yml                       # Bronze-layer tests
     │   ├── bronze_customer_raw.sql
     │   ├── bronze_product_enrollments.sql
-    │   ├── bronze_crm_transactions.sql
+    │   ├── bronze_crm_interactions.sql
     │   └── bronze_transaction_history.sql
     ├── silver/
     │   ├── silver_customers.sql             # Cleaned demographics (table)

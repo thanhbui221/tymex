@@ -45,7 +45,7 @@ product_id | customer_id | product_type | enrollment_date | limit
 
 ---
 
-## Table: crm_transactions
+## Table: crm_interactions
 
 **Description:** Customer interaction records from the CRM system.
 
@@ -93,6 +93,6 @@ product_id | customer_id | transaction_amount | closing_balance | transaction_da
 customer_raw (customer_id) 
     ├─→ product_enrollments (customer_id)
     │       └─→ transaction_history (product_id)
-    └─→ crm_transactions (customer_id)
+    └─→ crm_interactions (customer_id)
     └─→ transaction_history (customer_id)
 ```

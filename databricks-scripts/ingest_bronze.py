@@ -12,5 +12,5 @@ def load_raw(csv_path, table_name, **read_opts):
 # dbt bronze views wrap these raw tables under the bronze_* names
 load_raw(f"{base_path}/customer_raw.csv",          "customer_raw")
 load_raw(f"{base_path}/product_enrollments.csv",   "product_enrollments")
-load_raw(f"{base_path}/crm_interactions.csv",      "crm_transactions")
+load_raw(f"{base_path}/crm_interactions.csv",      "crm_interactions")
 load_raw(f"{base_path}/transaction_history/*.csv", "transaction_history")

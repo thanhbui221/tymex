@@ -1,8 +1,6 @@
 # Design Decisions
 
-Architecture diagram: [`architecture.drawio`](architecture.drawio) (editable) · [`architecture.drawio.svg`](architecture.drawio.svg) (rendered) — open with [diagrams.net](https://app.diagrams.net/) or the VS Code Draw.io extension.
-
-![Architecture](architecture.drawio.svg)
+Architecture diagram: [`architecture.svg`](architecture.svg)
 
 The diagram covers the full pipeline: source systems → ingestion → Bronze/Silver/Gold (Delta Lake) → consumers, plus the orchestration layer (four Databricks Workflow jobs provisioned by Terraform) and where dbt tests fire.
 
@@ -93,7 +91,7 @@ In production this is not the case. Each source table would need a continuous in
 |---|---|---|
 | `customer_raw` | Batch (daily CRM export or CDC) | Is CDC enabled on the CRM database? |
 | `product_enrollments` | Batch or event-driven | Does enrollment trigger an event or is it polled? |
-| `crm_transactions` | Near real-time or streaming | Does the CRM expose a Kafka topic or REST API? |
+| `crm_interactions` | Near real-time or streaming | Does the CRM expose a Kafka topic or REST API? |
 | `transaction_history` | Streaming or micro-batch | Is the transaction system CDC-enabled? What is the SLA? |
 
 The bronze models and `ingest_bronze.py` would need to be redesigned once source system details are confirmed. Until those details are known, **the ingestion layer should be treated as a placeholder**.

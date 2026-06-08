@@ -14,12 +14,12 @@ SELECT
     COUNT(CASE WHEN UPPER(TRIM(interaction_type)) = 'CHAT' THEN 1 END) AS chat_interactions,
     DATEDIFF(DAY, MAX(interaction_date), CURRENT_DATE()) AS days_since_last_interaction,
     MAX(_ingested_at) AS _ingested_at
-FROM {{ ref('bronze_crm_transactions') }}
+FROM {{ ref('bronze_crm_interactions') }}
 WHERE interaction_id IS NOT NULL
 {% if var('backfill_start', '') | trim != '' %}
     AND customer_id IN (
         SELECT DISTINCT customer_id
-        FROM {{ ref('bronze_crm_transactions') }}
+        FROM {{ ref('bronze_crm_interactions') }}
         WHERE _ingested_at >= '{{ var("backfill_start") }}'
         {% if var('backfill_end', '') | trim != '' %}
             AND _ingested_at < '{{ var("backfill_end") }}'

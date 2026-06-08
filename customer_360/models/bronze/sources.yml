@@ -11,5 +11,5 @@ sources:
     tables:
       - name: customer_raw
       - name: product_enrollments
-      - name: crm_transactions
+      - name: crm_interactions
       - name: transaction_history

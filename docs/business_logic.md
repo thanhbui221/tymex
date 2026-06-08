@@ -5,7 +5,7 @@
 | Requirement | Document |
 |-------------|----------|
 | Data Model Design (ERD, schemas, grain) | [`data_model_design.md`](data_model_design.md) |
-| Data Lineage (flow, source-to-target, dependencies) | [`data_lineage.md`](data_lineage.md) · [`data_lineage.drawio`](data_lineage.drawio) |
+| Data Lineage (flow, source-to-target, dependencies) | [`data_lineage.md`](data_lineage.md) · [`data_lineage.svg`](data_lineage.svg) |
 | Data Quality (findings, impact, remediation) | [`data_quality.md`](data_quality.md) |
 | Business Metrics (definitions, rationale, edge cases) | [`business_metrics.md`](business_metrics.md) |
 | Design Decisions (architecture, trade-offs, performance) | [`design_decisions.md`](design_decisions.md) · [`clustering_comparison.md`](clustering_comparison.md) |
@@ -18,11 +18,11 @@
 |-------|-------|-------|-------------|
 | Bronze | `bronze_customer_raw` | 1 row per customer | = source |
 | Bronze | `bronze_product_enrollments` | 1 row per product enrollment | many per customer |
-| Bronze | `bronze_crm_transactions` | 1 row per CRM interaction | many per customer |
+| Bronze | `bronze_crm_interactions` | 1 row per CRM interaction | many per customer |
 | Bronze | `bronze_transaction_history` | 1 row per financial transaction | highest volume, many per customer per product |
 | Silver | `silver_customers` | 1 row per customer | = bronze_customer_raw |
 | Silver | `silver_customer_products` | 1 row per customer (aggregated) | ≤ bronze_customer_raw |
-| Silver | `silver_customer_interactions` | 1 row per customer (aggregated) | ≤ bronze_crm_transactions |
+| Silver | `silver_customer_interactions` | 1 row per customer (aggregated) | ≤ bronze_crm_interactions |
 | Silver | `silver_customer_transactions` | 1 row per customer (aggregated) | ≤ bronze_transaction_history (+ LEFT JOIN bronze_product_enrollments) |
 | Gold | `customer_360` | 1 row per customer | = silver_customers |
 

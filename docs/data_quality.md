@@ -24,7 +24,7 @@ Purpose: catch bad source data before any transformation runs.
 | | `customer_id` | `not_null` + `relationships → bronze_customer_raw` | Orphan enrollments for unknown customers |
 | | `product_type` | `not_null` + `accepted_values` (`Savings`, `Credit Card`) | Unknown types silently dropped from credit card / savings breakdowns in silver |
 | | `_ingested_at` | `not_null` | NULL watermark |
-| `bronze_crm_transactions` | `interaction_id` | `unique` + `not_null` | Duplicate interaction records inflating interaction counts |
+| `bronze_crm_interactions` | `interaction_id` | `unique` + `not_null` | Duplicate interaction records inflating interaction counts |
 | | `customer_id` | `not_null` + `relationships → bronze_customer_raw` | Orphan interactions skewing `days_since_last_interaction` |
 | | `interaction_type` | `not_null` + `accepted_values` (`Email`, `Chat`, `Call`) | Unknown types silently missing from channel breakdowns |
 | | `_ingested_at` | `not_null` | NULL watermark |
@@ -116,7 +116,7 @@ Purpose: verify that business logic is correctly implemented, not just that colu
 
 ### Issue 3 — `'Call'` Interaction Type Unhandled in Silver `[MEDIUM]`
 
-**Finding:** `crm_transactions.interaction_type` contains three values: Chat (65%), Email (25%), Call (10%). `silver_customer_interactions` only breaks down `Email` and `Chat` — `Call` interactions are not counted in any breakdown column.
+**Finding:** `crm_interactions.interaction_type` contains three values: Chat (65%), Email (25%), Call (10%). `silver_customer_interactions` only breaks down `Email` and `Chat` — `Call` interactions are not counted in any breakdown column.
 
 **Impact on business metrics:**
 - `total_interactions` is correct (counts all rows regardless of type).

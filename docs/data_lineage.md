@@ -1,8 +1,6 @@
 # Data Lineage
 
-Visual diagram: [`data_lineage.drawio`](data_lineage.drawio) (editable) · [`data_lineage.drawio.svg`](data_lineage.drawio.svg) (rendered) — open with [diagrams.net](https://app.diagrams.net/) or the VS Code Draw.io extension.
-
-![Data Lineage](data_lineage.drawio.svg)
+Visual diagram: [`data_lineage.svg`](data_lineage.svg)
 
 The diagram is color-coded by layer (grey = source, orange = bronze, blue = silver, yellow = gold) and shows materialization type and ingestion frequency on each node.
 
@@ -14,7 +12,7 @@ The diagram is color-coded by layer (grey = source, orange = bronze, blue = silv
 |---|---|---|---|
 | `customer_raw` | `bronze_customer_raw` | `silver_customers` | `customer_360` |
 | `product_enrollments` | `bronze_product_enrollments` | `silver_customer_products` | `customer_360` |
-| `crm_transactions` | `bronze_crm_transactions` | `silver_customer_interactions` | `customer_360` |
+| `crm_interactions` | `bronze_crm_interactions` | `silver_customer_interactions` | `customer_360` |
 | `transaction_history` | `bronze_transaction_history` | `silver_customer_transactions` | `customer_360` |
 
 > **Note**: `silver_customer_transactions` is the exception — it joins both `bronze_transaction_history` (primary) and `bronze_product_enrollments` (LEFT JOIN on `product_id`) to resolve product-type breakdowns (credit card vs savings transaction values). All other silver models have exactly one bronze source.
@@ -58,7 +56,7 @@ bronze_product_enrollments
     └── silver_customer_transactions (LEFT JOIN on product_id)
             └── customer_360
 
-bronze_crm_transactions
+bronze_crm_interactions
     └── silver_customer_interactions
             └── customer_360
 

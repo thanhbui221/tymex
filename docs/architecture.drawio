@@ -53,7 +53,7 @@
                 <mxCell id="src2" value="Product System&#xa;product_enrollments" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="30" y="175" width="150" height="40" as="geometry"/>
                 </mxCell>
-                <mxCell id="src3" value="CRM Interactions&#xa;crm_transactions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
+                <mxCell id="src3" value="CRM Interactions&#xa;crm_interactions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="30" y="245" width="150" height="40" as="geometry"/>
                 </mxCell>
                 <mxCell id="src4" value="Transaction System&#xa;transaction_history" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
@@ -84,7 +84,7 @@
                 <mxCell id="bz2" value="bronze_product_enrollments&#xa;view" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="408" y="175" width="145" height="40" as="geometry"/>
                 </mxCell>
-                <mxCell id="bz3" value="bronze_crm_transactions&#xa;view" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
+                <mxCell id="bz3" value="bronze_crm_interactions&#xa;view" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="408" y="245" width="145" height="40" as="geometry"/>
                 </mxCell>
                 <mxCell id="bz4" value="bronze_transaction_history&#xa;view" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff3e0;strokeColor=#e65100;fontColor=#333333;fontSize=10;" parent="1" vertex="1">

@@ -32,9 +32,9 @@ tymex/
 │   └── README.md
 └── docs/
     ├── data_model_design.md         # ERD, table schemas, grain and cardinality per layer
-    ├── erd.drawio                   # Entity relationship diagram — source tables, PKs, FKs, cardinality
+    ├── erd.svg                   # Entity relationship diagram — source tables, PKs, FKs, cardinality
     ├── data_lineage.md              # Source-to-target mapping, transformation flow, model dependencies
-    ├── data_lineage.drawio          # Visual lineage diagram (open with diagrams.net)
+    ├── data_lineage.svg          # Visual lineage diagram (open with diagrams.net)
     ├── data_quality.md              # DQ findings, impact on metrics, remediation strategies
     ├── business_metrics.md          # Metric definitions, rationale, edge cases
     ├── design_decisions.md          # Modeling approach, trade-offs, performance optimization
@@ -116,11 +116,11 @@ The bank wants a unified view of customer behavior across products (credit cards
 Create a unified view of customer behavior across all products for business analytics and reporting.
 
 ### Input Tables
-See [`schema.md`](schema.md) for detailed table structures and sample data. See [`docs/erd.drawio`](docs/erd.drawio) for the entity relationship diagram.
+See [`schema.md`](schema.md) for detailed table structures and sample data. See [`docs/erd.svg`](docs/erd.svg) for the entity relationship diagram.
 
 - `customer_raw`: Customer demographic and signup information
 - `product_enrollments`: Product enrollment records (Savings, Credit Card)
-- `crm_transactions`: Customer interaction records (Email, Chat, Phone)
+- `crm_interactions`: Customer interaction records (Email, Chat, Phone)
 - `transaction_history`: Financial transaction records across all products
 
 ### Output: customer_360 Table
@@ -176,14 +176,14 @@ Your documentation must be **clear and concise**, covering:
 - Table schemas and column descriptions
 - Grain and cardinality of each model layer
 
-→ [`docs/data_model_design.md`](docs/data_model_design.md) · [`docs/erd.drawio`](docs/erd.drawio) · [`schema.md`](schema.md)
+→ [`docs/data_model_design.md`](docs/data_model_design.md) · [`docs/erd.svg`](docs/erd.svg) · [`schema.md`](schema.md)
 
 ### 2. Data Lineage
 - Source-to-target mapping
 - Transformation flow across layers (raw → staging → intermediate → gold)
 - Dependencies between models
 
-→ [`docs/data_lineage.md`](docs/data_lineage.md) · [`docs/data_lineage.drawio`](docs/data_lineage.drawio)
+→ [`docs/data_lineage.md`](docs/data_lineage.md) · [`docs/data_lineage.svg`](docs/data_lineage.svg)
 
 ### 3. Data Quality
 - Tests implemented and their purpose

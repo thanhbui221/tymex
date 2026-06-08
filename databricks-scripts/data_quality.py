@@ -26,13 +26,13 @@ DB = "customer_360_db"
 
 customer_raw        = spark.table(f"{DB}.customer_raw")
 product_enrollments = spark.table(f"{DB}.product_enrollments")
-crm_transactions    = spark.table(f"{DB}.crm_transactions")
+crm_interactions    = spark.table(f"{DB}.crm_interactions")
 transaction_history = spark.table(f"{DB}.transaction_history")
 
 print("Row counts:")
 print(f"  customer_raw:        {customer_raw.count():>10,}")
 print(f"  product_enrollments: {product_enrollments.count():>10,}")
-print(f"  crm_transactions:    {crm_transactions.count():>10,}")
+print(f"  crm_interactions:    {crm_interactions.count():>10,}")
 print(f"  transaction_history: {transaction_history.count():>10,}")
 
 # COMMAND ----------
@@ -188,20 +188,20 @@ product_enrollments.groupBy("customer_id").count() \
     .orderBy("products_per_customer").show()
 
 # COMMAND ----------
-# MAGIC %md ## 3. crm_transactions
+# MAGIC %md ## 3. crm_interactions
 
 # COMMAND ----------
 # MAGIC %md ### 3.1 Null & Duplicate Check
 
 # COMMAND ----------
 print("Null counts:")
-crm_transactions.select([
+crm_interactions.select([
     F.count(F.when(F.col(c).isNull() | (F.col(c) == ""), c)).alias(c)
-    for c in crm_transactions.columns
+    for c in crm_interactions.columns
 ]).show()
 
-total_crm = crm_transactions.count()
-distinct_iid = crm_transactions.select("interaction_id").distinct().count()
+total_crm = crm_interactions.count()
+distinct_iid = crm_interactions.select("interaction_id").distinct().count()
 print(f"Duplicate interaction_ids: {total_crm - distinct_iid}")
 
 # COMMAND ----------
@@ -209,7 +209,7 @@ print(f"Duplicate interaction_ids: {total_crm - distinct_iid}")
 
 # COMMAND ----------
 # IMPORTANT: 'Call' type exists in data but is not counted in silver_customer_interactions
-crm_transactions.groupBy("interaction_type").count() \
+crm_interactions.groupBy("interaction_type").count() \
     .withColumn("pct", F.round(F.col("count") / total_crm * 100, 1)) \
     .orderBy(F.col("count").desc()).show()
 
@@ -217,7 +217,7 @@ crm_transactions.groupBy("interaction_type").count() \
 # MAGIC %md ### 3.3 Interaction Date Range & Recency
 
 # COMMAND ----------
-crm_transactions.select(
+crm_interactions.select(
     F.min("interaction_date").alias("earliest"),
     F.max("interaction_date").alias("latest"),
 ).show()
@@ -226,7 +226,7 @@ crm_transactions.select(
 # MAGIC %md ### 3.4 Referential Integrity — customer_id
 
 # COMMAND ----------
-orphaned_crm = crm_transactions.join(
+orphaned_crm = crm_interactions.join(
     customer_raw.select("customer_id"), on="customer_id", how="left_anti"
 ).count()
 print(f"CRM interactions with no matching customer_id: {orphaned_crm}")
@@ -323,7 +323,7 @@ print(f"Transactions with orphaned customer_id: {orphaned_cust}")
 
 # COMMAND ----------
 cust_with_products = product_enrollments.select("customer_id").distinct()
-cust_with_crm      = crm_transactions.select("customer_id").distinct()
+cust_with_crm      = crm_interactions.select("customer_id").distinct()
 cust_with_tx       = transaction_history.select("customer_id").distinct()
 all_customers      = customer_raw.select("customer_id")
 
@@ -364,7 +364,7 @@ print("""
 ║  VALIDITY                                                                  ║
 ║  ✗ customer_raw: ~1,120 phone numbers in non-standard format               ║
 ║    (not '09...' or '+63...')                                               ║
-║  ✗ crm_transactions: 'Call' interaction type exists but is NOT             ║
+║  ✗ crm_interactions: 'Call' interaction type exists but is NOT             ║
 ║    counted in silver_customer_interactions (only EMAIL and CHAT handled)   ║
 ║  ✓ Age range 18–66, no underage customers                                  ║
 ║  ✓ No negative credit limits                                               ║

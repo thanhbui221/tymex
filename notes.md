@@ -110,7 +110,7 @@ Open it in Databricks and run it. It reads the CSVs from the workspace path abov
 
 - `customer_360_db.customer_raw`
 - `customer_360_db.product_enrollments`
-- `customer_360_db.crm_transactions`
+- `customer_360_db.crm_interactions`
 - `customer_360_db.transaction_history`
 
 ---

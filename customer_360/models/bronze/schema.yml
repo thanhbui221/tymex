@@ -39,7 +39,7 @@ models:
         tests:
           - not_null
 
-  - name: bronze_crm_transactions
+  - name: bronze_crm_interactions
     columns:
       - name: interaction_id
         tests:

@@ -2,9 +2,7 @@
 
 ## 1. Entity Relationship Diagram (Source Layer)
 
-Diagram: [`erd.drawio`](erd.drawio) (editable) · [`erd.drawio.svg`](erd.drawio.svg) (rendered) — open with [diagrams.net](https://app.diagrams.net/) or the VS Code Draw.io extension.
-
-![ERD](erd.drawio.svg)
+Diagram: [`erd.svg`](erd.svg)
 
 The ERD covers all four source tables with column names, data types, PK/FK markers (🔑/🔗), and crow's foot cardinality lines (1:N).
 
@@ -12,7 +10,7 @@ Source table schemas and sample data: [`schema.md`](../schema.md)
 
 **Cardinalities:**
 - `customer_raw` (1) → `product_enrollments` (N) on `customer_id`
-- `customer_raw` (1) → `crm_transactions` (N) on `customer_id`
+- `customer_raw` (1) → `crm_interactions` (N) on `customer_id`
 - `customer_raw` (1) → `transaction_history` (N) on `customer_id`
 - `product_enrollments` (1) → `transaction_history` (N) on `product_id`
 
@@ -27,7 +25,7 @@ Full column definitions and sample data: [`schema.md`](../schema.md)
 |-------|----------------|----|-------------|
 | `customer_raw` | 100,000 | `customer_id` | Customer demographics and signup |
 | `product_enrollments` | 140,000 | `product_id` | Product enrollment records per customer |
-| `crm_transactions` | 243,000 | `interaction_id` | CRM interaction history |
+| `crm_interactions` | 243,000 | `interaction_id` | CRM interaction history |
 | `transaction_history` | 887,000 | `transaction_id` | Financial transactions per product |
 
 ### dbt Model Columns
@@ -66,7 +64,7 @@ Column-level test definitions for each layer live in the corresponding `schema.y
 |-------|-------|-------|---------------------|
 | Bronze | `bronze_customer_raw` | 1 row per customer | = source (100k) |
 | Bronze | `bronze_product_enrollments` | 1 row per product enrollment | = source (140k) |
-| Bronze | `bronze_crm_transactions` | 1 row per CRM interaction | = source (243k) |
+| Bronze | `bronze_crm_interactions` | 1 row per CRM interaction | = source (243k) |
 | Bronze | `bronze_transaction_history` | 1 row per financial transaction | = source (887k) |
 | Silver | `silver_customers` | 1 row per customer | = bronze_customer_raw (100k) |
 | Silver | `silver_customer_products` | 1 row per customer (aggregated) | ≤ 100k |
