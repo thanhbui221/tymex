@@ -1,0 +1,147 @@
+# Business Logic & Design Decisions
+
+> This file is an index. Each topic is covered in a dedicated doc below.
+
+| Requirement | Document |
+|-------------|----------|
+| Data Model Design (ERD, schemas, grain) | [`data_model_design.md`](data_model_design.md) |
+| Data Lineage (flow, source-to-target, dependencies) | [`data_lineage.md`](data_lineage.md) · [`data_lineage.drawio`](data_lineage.drawio) |
+| Data Quality (findings, impact, remediation) | [`data_quality.md`](data_quality.md) |
+| Business Metrics (definitions, rationale, edge cases) | [`business_metrics.md`](business_metrics.md) |
+| Design Decisions (architecture, trade-offs, performance) | [`design_decisions.md`](design_decisions.md) · [`clustering_comparison.md`](clustering_comparison.md) |
+
+---
+
+## Layer Grain & Cardinality
+
+| Layer | Model | Grain | Cardinality |
+|-------|-------|-------|-------------|
+| Bronze | `bronze_customer_raw` | 1 row per customer | = source |
+| Bronze | `bronze_product_enrollments` | 1 row per product enrollment | many per customer |
+| Bronze | `bronze_crm_transactions` | 1 row per CRM interaction | many per customer |
+| Bronze | `bronze_transaction_history` | 1 row per financial transaction | highest volume, many per customer per product |
+| Silver | `silver_customers` | 1 row per customer | = bronze_customer_raw |
+| Silver | `silver_customer_products` | 1 row per customer (aggregated) | ≤ bronze_customer_raw |
+| Silver | `silver_customer_interactions` | 1 row per customer (aggregated) | ≤ bronze_crm_transactions |
+| Silver | `silver_customer_transactions` | 1 row per customer (aggregated) | ≤ bronze_transaction_history (+ LEFT JOIN bronze_product_enrollments) |
+| Gold | `customer_360` | 1 row per customer | = silver_customers |
+
+Bronze uses `LEFT JOIN` at the gold layer so every customer in `silver_customers` appears in `customer_360`, even if they have no products, interactions, or transactions.
+
+---
+
+## Business Metric Definitions
+
+### Active Customer
+
+| | |
+|---|---|
+| **Definition** | Customer with at least one CRM interaction **or** financial transaction in the past 90 days |
+| **Field** | `customer_status` = `'Active'` / `'Inactive'` |
+| **Logic** | `days_since_last_interaction <= 90 OR days_since_last_transaction <= 90` |
+| **Rationale** | 90 days = one quarter; a customer engaging at least once per quarter is considered retained |
+| **Edge case** | Customer with no interactions AND no transactions → both fields are NULL → evaluated as Inactive |
+
+### Customer Segmentation
+
+| Segment | Criteria | Rationale |
+|---------|----------|-----------|
+| `Premium` | `total_products >= 3` AND `total_transaction_value > 100,000` | High-product, high-value customers requiring differentiated service |
+| `Standard` | `total_products >= 2` | Multi-product customers with growth potential, regardless of transaction volume |
+| `Basic` | All others | New or single-product customers |
+
+Rules are evaluated top-down; a customer meeting Premium criteria is not re-evaluated for Standard.
+
+**Edge case**: A customer with 3+ products but negative `total_transaction_value` (net debit position) falls into Standard, not Premium — the 100k threshold applies to the sum, which can be negative.
+
+### Product Metrics
+
+| Metric | Calculation | Notes |
+|--------|-------------|-------|
+| `total_products` | COUNT(*) of enrollments per customer | COALESCE to 0 in gold for customers with no enrollments |
+| `credit_card_count` | COUNT of enrollments where product_type = 'CREDIT CARD' | Case-insensitive match |
+| `savings_count` | COUNT of enrollments where product_type = 'SAVINGS' | Case-insensitive match |
+| `max_credit_limit` | MAX(limit) across credit card enrollments | NULL for customers with no credit card; 0.0 for savings-only |
+| `first_product_date` | MIN(enrollment_date) | Earliest product relationship with the bank |
+
+### Transaction Metrics
+
+| Metric | Calculation | Notes |
+|--------|-------------|-------|
+| `total_transactions` | COUNT(*) | COALESCE to 0 in gold |
+| `total_transaction_value` | SUM(transaction_amount) | Positive = net credit, negative = net debit position |
+| `avg_transaction_amount` | AVG(transaction_amount) | Can be negative |
+| `max_balance` / `min_balance` | MAX/MIN(closing_balance) | Range of account balance experienced |
+| `last_transaction_date` | MAX(transaction_date) | Most recent financial activity |
+| `days_since_last_transaction` | DATEDIFF(DAY, last_transaction_date, CURRENT_DATE()) | Used in active customer definition |
+| `credit_card_transaction_value` | SUM(amount) where product_type = 'CREDIT CARD' | Resolved via JOIN to bronze_product_enrollments |
+| `savings_transaction_value` | SUM(amount) where product_type = 'SAVINGS' | Resolved via JOIN to bronze_product_enrollments |
+
+### Interaction Metrics
+
+| Metric | Calculation | Notes |
+|--------|-------------|-------|
+| `total_interactions` | COUNT(*) | COALESCE to 0 in gold |
+| `email_interactions` | COUNT where interaction_type = 'EMAIL' | Case-insensitive |
+| `chat_interactions` | COUNT where interaction_type = 'CHAT' | Case-insensitive |
+| `last_interaction_date` | MAX(interaction_date) | Most recent CRM contact |
+| `days_since_last_interaction` | DATEDIFF(DAY, last_interaction_date, CURRENT_DATE()) | Used in active customer definition |
+
+---
+
+## Design Decisions
+
+### Medallion Architecture (Bronze → Silver → Gold)
+
+Bronze models are thin views directly over raw source tables — no transformation, just a stable contract so downstream models aren't coupled to raw table names. Silver models clean, standardise, and aggregate to one row per customer. Gold joins all silver models into the final reporting table.
+
+**Trade-off**: An extra layer adds query hops, but it isolates concerns — if a source table is renamed, only the bronze model changes.
+
+### Incremental Materialization
+
+`silver_customer_interactions`, `silver_customer_transactions`, and `customer_360` are incremental (merge on `customer_id`). `silver_customers` and `silver_customer_products` are full-refresh tables because the source data is relatively small and slow-changing.
+
+Incremental models use `_ingested_at` as the watermark rather than the business timestamp (`interaction_date`, `transaction_date`). This avoids reprocessing issues caused by late-arriving records or timezone ambiguity in business timestamps.
+
+**Gold layer uses two separate watermarks** (`_interactions_ingested_at`, `_transactions_ingested_at`) to avoid cross-contamination — a new batch of transactions should not force reprocessing of the entire customer set just because the interaction watermark hasn't advanced.
+
+### Clustering Strategy
+
+The gold table uses Liquid Clustering on `customer_id` (Databricks Runtime 13.3+). This is automatic — no separate OPTIMIZE job needed. See [`clustering_comparison.md`](clustering_comparison.md) for the comparison with Z-Ordering.
+
+### Bronze Sources per Silver Model
+
+Most silver models source from exactly one bronze model. The exception is `silver_customer_transactions`, which LEFT JOINs `bronze_product_enrollments` on `product_id` to resolve product-type breakdowns (credit card vs savings transaction values and counts). All other cross-model joins happen only at the gold layer on `customer_id`. See [`design_decisions.md`](design_decisions.md).
+
+---
+
+## Data Quality Tests
+
+### Bronze Layer (`models/bronze/schema.yml`)
+- `unique` + `not_null` on all primary keys
+- `not_null` on `_ingested_at` (source freshness sentinel)
+- `relationships`: `transaction_history.product_id` → `product_enrollments.product_id`
+
+### Silver Layer (`models/silver/schema.yml`)
+- `unique` + `not_null` on `customer_id` across all silver models
+- `not_null` on key aggregated fields (`last_interaction_date`, `last_transaction_date`, `total_*`)
+- `relationships`: `silver_customer_products.customer_id` → `bronze_customer_raw.customer_id`
+
+### Gold Layer (`models/gold/schema.yml`)
+- `unique` + `not_null` on `customer_id`
+- `not_null` on demographic fields (`first_name`, `last_name`, `email`)
+- `accepted_values` on `customer_status` and `customer_segment`
+- `relationships`: `customer_360.customer_id` → `silver_customers.customer_id`
+
+### Custom Business Rule Tests (`tests/`)
+| Test | Rule |
+|------|------|
+| `assert_active_customers_have_recent_activity` | Active customers must have interaction or transaction within 90 days |
+| `assert_premium_customers_meet_criteria` | Premium customers must have 3+ products AND total_transaction_value > 100,000 |
+| `assert_no_negative_counts` | age, days_since_signup, total_products, total_interactions, total_transactions must be >= 0 |
+
+---
+
+## Data Quality
+
+See [`data_quality.md`](data_quality.md) for the full findings — issues discovered, impact on business metrics, and remediation strategies.

@@ -17,5 +17,4 @@ override.tf.json
 
 **/.terraform.lock.hcl
 
-docs
 logs
