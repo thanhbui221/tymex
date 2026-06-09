@@ -2,82 +2,142 @@ version: 2
 
 models:
   - name: bronze_customer_raw
+    description: Raw customer profile data from CRM/customer master system.
     columns:
       - name: customer_id
         tests:
           - unique
           - not_null
+
+      - name: first_name
+        tests:
+          - not_null
+
+      - name: last_name
+        tests:
+          - not_null
+
       - name: email
         tests:
           - not_null
+
+      - name: mobile
+        tests:
+          - not_null
+
       - name: gender
         tests:
+          - not_null
           - accepted_values:
               values: ['Male', 'Female']
+
+      - name: date_of_birth
+        tests:
+          - not_null
+
+      - name: signup_date
+        tests:
+          - not_null
+
       - name: _ingested_at
         tests:
           - not_null
 
+
   - name: bronze_product_enrollments
+    description: Raw product enrollment records for savings and credit card products.
     columns:
       - name: product_id
         tests:
           - unique
           - not_null
+
       - name: customer_id
         tests:
           - not_null
           - relationships:
               to: ref('bronze_customer_raw')
               field: customer_id
+
       - name: product_type
         tests:
           - not_null
           - accepted_values:
               values: ['Savings', 'Credit Card']
+
+      - name: enrollment_date
+        tests:
+          - not_null
+
       - name: _ingested_at
         tests:
           - not_null
 
+
   - name: bronze_crm_interactions
+    description: Raw CRM interaction events across email, chat, and call channels.
     columns:
       - name: interaction_id
         tests:
           - unique
           - not_null
+
       - name: customer_id
         tests:
           - not_null
           - relationships:
               to: ref('bronze_customer_raw')
               field: customer_id
+
       - name: interaction_type
         tests:
           - not_null
           - accepted_values:
               values: ['Email', 'Chat', 'Call']
+
+      - name: interaction_date
+        tests:
+          - not_null
+
       - name: _ingested_at
         tests:
           - not_null
 
+
   - name: bronze_transaction_history
+    description: Raw transaction records across customer products.
     columns:
       - name: transaction_id
         tests:
           - unique
           - not_null
+
       - name: customer_id
         tests:
           - not_null
           - relationships:
               to: ref('bronze_customer_raw')
               field: customer_id
+
       - name: product_id
         tests:
           - not_null
           - relationships:
               to: ref('bronze_product_enrollments')
               field: product_id
+
+      - name: transaction_amount
+        tests:
+          - not_null
+
+      - name: closing_balance
+        tests:
+          - not_null
+
+      - name: transaction_date
+        tests:
+          - not_null
+
       - name: _ingested_at
         tests:
           - not_null

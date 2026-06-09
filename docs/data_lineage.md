@@ -79,6 +79,5 @@ Incremental models filter on `_ingested_at` (not the business timestamp) to avoi
 |-------|-----------------|----------|
 | `silver_customer_interactions` | `_ingested_at` | merge on `customer_id` |
 | `silver_customer_transactions` | `_ingested_at` | merge on `customer_id` |
-| `customer_360` | `_interactions_ingested_at`, `_transactions_ingested_at` | merge on `customer_id` (two independent watermarks) |
 
-The gold layer carries two separate watermarks to avoid cross-contamination — a new batch of transactions should not force reprocessing of all customers just because the interaction watermark hasn't advanced.
+`customer_360` (gold) is a full-refresh `table` — it joins all four silver sources on every run. Watermark-based incremental logic at the gold layer would require tracking changes across all four upstreams simultaneously; full refresh is simpler and reliable at 100k rows.

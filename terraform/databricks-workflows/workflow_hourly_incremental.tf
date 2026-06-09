@@ -8,8 +8,26 @@ resource "databricks_job" "hourly_incremental_refresh" {
     pause_status           = "UNPAUSED"
   }
 
+  # Gate: verify bronze referential integrity before building silver from it.
+  task {
+    task_key = "test_bronze"
+
+    notebook_task {
+      notebook_path = "${var.dbt_project_path}/run_dbt.py"
+      base_parameters = {
+        dbt_command = "test --select assert_transaction_product_customer_match"
+      }
+    }
+
+    timeout_seconds = 600
+    max_retries     = 1
+  }
+
   task {
     task_key = "build_silver_interactions"
+    depends_on {
+      task_key = "test_bronze"
+    }
 
     notebook_task {
       notebook_path = "${var.dbt_project_path}/run_dbt.py"
@@ -24,6 +42,9 @@ resource "databricks_job" "hourly_incremental_refresh" {
 
   task {
     task_key = "build_silver_transactions"
+    depends_on {
+      task_key = "test_bronze"
+    }
 
     notebook_task {
       notebook_path = "${var.dbt_project_path}/run_dbt.py"
@@ -36,13 +57,31 @@ resource "databricks_job" "hourly_incremental_refresh" {
     max_retries     = 2
   }
 
+  # Gate: validate silver invariants before building gold from them.
   task {
-    task_key = "build_gold_customer_360"
+    task_key = "test_silver"
     depends_on {
       task_key = "build_silver_interactions"
     }
     depends_on {
       task_key = "build_silver_transactions"
+    }
+
+    notebook_task {
+      notebook_path = "${var.dbt_project_path}/run_dbt.py"
+      base_parameters = {
+        dbt_command = "test --select assert_customer_360_transaction_values_consistent"
+      }
+    }
+
+    timeout_seconds = 600
+    max_retries     = 1
+  }
+
+  task {
+    task_key = "build_gold_customer_360"
+    depends_on {
+      task_key = "test_silver"
     }
 
     notebook_task {
@@ -57,7 +96,7 @@ resource "databricks_job" "hourly_incremental_refresh" {
   }
 
   task {
-    task_key = "test_business_rules"
+    task_key = "test_gold"
     depends_on {
       task_key = "build_gold_customer_360"
     }
@@ -65,9 +104,7 @@ resource "databricks_job" "hourly_incremental_refresh" {
     notebook_task {
       notebook_path = "${var.dbt_project_path}/run_dbt.py"
       base_parameters = {
-        # Singular tests are standalone DAG nodes — not picked up by model name selectors.
-        # Must be selected explicitly by test_type.
-        dbt_command = "test --select test_type:singular"
+        dbt_command = "test --select assert_no_negative_counts assert_active_customers_have_recent_activity assert_premium_customers_meet_criteria"
       }
     }
 

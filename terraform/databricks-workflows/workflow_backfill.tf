@@ -72,13 +72,31 @@ resource "databricks_job" "backfill" {
     max_retries     = 1
   }
 
+  # Gate: validate silver invariants before building gold from them.
   task {
-    task_key = "backfill_gold_customer_360"
+    task_key = "test_silver"
     depends_on {
       task_key = "backfill_silver_interactions"
     }
     depends_on {
       task_key = "backfill_silver_transactions"
+    }
+
+    notebook_task {
+      notebook_path = "${var.dbt_project_path}/run_dbt.py"
+      base_parameters = {
+        dbt_command = "test --select assert_customer_360_transaction_values_consistent"
+      }
+    }
+
+    timeout_seconds = 600
+    max_retries     = 1
+  }
+
+  task {
+    task_key = "backfill_gold_customer_360"
+    depends_on {
+      task_key = "test_silver"
     }
 
     notebook_task {
@@ -95,7 +113,7 @@ resource "databricks_job" "backfill" {
   }
 
   task {
-    task_key = "test_business_rules"
+    task_key = "test_gold"
     depends_on {
       task_key = "backfill_gold_customer_360"
     }
@@ -103,7 +121,7 @@ resource "databricks_job" "backfill" {
     notebook_task {
       notebook_path = "${var.dbt_project_path}/run_dbt.py"
       base_parameters = {
-        dbt_command = "test --select test_type:singular"
+        dbt_command = "test --select assert_no_negative_counts assert_active_customers_have_recent_activity assert_premium_customers_meet_criteria"
       }
     }
 

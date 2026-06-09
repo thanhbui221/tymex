@@ -1,10 +1,12 @@
--- Fails if any Premium customer does not meet both criteria:
--- 3+ products AND total_transaction_value > 100,000.
-SELECT
+-- Fails if any Premium customer does not meet the defined Premium criteria.
+select
     customer_id,
     customer_segment,
-    total_products,
+    has_credit_card,
     total_transaction_value
-FROM {{ ref('customer_360') }}
-WHERE customer_segment = 'Premium'
-  AND (total_products < 3 OR total_transaction_value <= 100000)
+from {{ ref('customer_360') }}
+where customer_segment = 'Premium'
+  and (
+        has_credit_card <> true
+        or total_transaction_value < 100000
+      )

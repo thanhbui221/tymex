@@ -1,11 +1,28 @@
--- Fails if any customer marked Active has no activity in the last 90 days.
--- Both conditions must be false (or NULL) for an Active customer to be invalid.
-SELECT
+-- Fails if active customer flags/status do not match days_since_last_activity.
+select
     customer_id,
-    customer_status,
-    days_since_last_interaction,
-    days_since_last_transaction
-FROM {{ ref('customer_360') }}
-WHERE customer_status = 'Active'
-  AND (days_since_last_interaction > 90 OR days_since_last_interaction IS NULL)
-  AND (days_since_last_transaction  > 90 OR days_since_last_transaction  IS NULL)
+    last_activity_date,
+    days_since_last_activity,
+    is_active_customer,
+    customer_status
+from {{ ref('customer_360') }}
+where (
+        customer_status = 'Active'
+        and (
+            last_activity_date is null
+            or days_since_last_activity > 90
+            or is_active_customer <> true
+        )
+      )
+   or (
+        is_active_customer = true
+        and (
+            last_activity_date is null
+            or days_since_last_activity > 90
+            or customer_status <> 'Active'
+        )
+      )
+   or (
+        customer_status = 'Never Active'
+        and last_activity_date is not null
+      )

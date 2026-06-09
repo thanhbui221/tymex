@@ -22,6 +22,27 @@ clean-targets:         # directories to be removed by `dbt clean`
   - "target"
   - "dbt_packages"
 
+vars:
+  # Activity status thresholds (days since last activity)
+  active_days_threshold: 90
+  at_risk_days_threshold: 180
+
+  # Transaction value segmentation thresholds
+  high_value_transaction_threshold: 150000
+  medium_value_transaction_threshold: 50000
+
+  # Premium segment minimum transaction value
+  premium_transaction_threshold: 100000
+
+  # CRM engagement thresholds (interaction count)
+  highly_engaged_interaction_threshold: 10
+  moderately_engaged_interaction_threshold: 3
+
+  # Customer lifecycle stage thresholds (days since signup)
+  lifecycle_new_days: 90
+  lifecycle_growing_days: 365
+  lifecycle_established_days: 1095
+
 
 # Configuring models
 # Full documentation: https://docs.getdbt.com/docs/configuring-models
@@ -51,6 +72,4 @@ models:
         +incremental_strategy: merge
     gold:
       customer_360:
-        +materialized: incremental
-        +unique_key: customer_id
-        +incremental_strategy: merge
+        +materialized: table

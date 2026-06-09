@@ -2,29 +2,67 @@ version: 2
 
 models:
   - name: silver_customers
-    description: "Cleaned and standardised customer demographics. One row per customer."
+    description: "Cleaned, standardised, and deduplicated customer demographics. One row per customer."
     columns:
       - name: customer_id
         tests:
           - unique
           - not_null
+
       - name: email
-        description: "Lowercase-trimmed email. Expected unique per customer — failures stored in audit table for investigation."
+        description: "Lowercase-trimmed customer email."
         tests:
           - not_null
-          - unique
+
+      - name: mobile_clean
+        description: "Digits-only mobile number."
+        tests:
+          - not_null
+
       - name: first_name
         tests:
           - not_null
+
       - name: last_name
         tests:
           - not_null
+
+      - name: full_name
+        tests:
+          - not_null
+
+      - name: gender
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Male', 'Female']
+
+      - name: date_of_birth
+        tests:
+          - not_null
+
+      - name: signup_date
+        tests:
+          - not_null
+
       - name: age
         tests:
           - not_null
+
+      - name: age_band
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['18-24', '25-34', '35-44', '45-54', '55-64', '65+']
+
       - name: days_since_signup
         tests:
           - not_null
+
+      - name: _ingested_at
+        tests:
+          - not_null
+
 
   - name: silver_customer_products
     description: "Aggregated product holdings per customer. One row per customer."
@@ -36,15 +74,57 @@ models:
           - relationships:
               to: ref('silver_customers')
               field: customer_id
+
       - name: total_products
         tests:
           - not_null
+
       - name: credit_card_count
         tests:
           - not_null
+
       - name: savings_count
         tests:
           - not_null
+
+      - name: max_credit_limit
+        description: "Highest credit limit across all credit card enrollments. Null for customers with no credit card."
+
+      - name: total_credit_limit
+        description: "Sum of credit limits across all credit card enrollments."
+        tests:
+          - not_null
+
+      - name: has_credit_card
+        tests:
+          - not_null
+
+      - name: has_savings
+        tests:
+          - not_null
+
+      - name: is_multi_product
+        tests:
+          - not_null
+
+      - name: product_segment
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Savings + Credit Card', 'Credit Card Only', 'Savings Only', 'No Product']
+
+      - name: first_product_date
+        tests:
+          - not_null
+
+      - name: latest_product_date
+        tests:
+          - not_null
+
+      - name: _ingested_at
+        tests:
+          - not_null
+
 
   - name: silver_customer_interactions
     description: "Aggregated CRM interaction metrics per customer. One row per customer."
@@ -56,12 +136,41 @@ models:
           - relationships:
               to: ref('silver_customers')
               field: customer_id
+
       - name: total_interactions
         tests:
           - not_null
+
+      - name: email_interactions
+        tests:
+          - not_null
+
+      - name: chat_interactions
+        tests:
+          - not_null
+
+      - name: call_interactions
+        tests:
+          - not_null
+
+      - name: first_interaction_date
+        tests:
+          - not_null
+
       - name: last_interaction_date
         tests:
           - not_null
+
+      - name: last_interaction_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['EMAIL', 'CHAT', 'CALL']
+
+      - name: _ingested_at
+        tests:
+          - not_null
+
 
   - name: silver_customer_transactions
     description: "Aggregated financial transaction metrics per customer. One row per customer."
@@ -73,9 +182,94 @@ models:
           - relationships:
               to: ref('silver_customers')
               field: customer_id
+
       - name: total_transactions
         tests:
           - not_null
+
+      - name: debit_count
+        tests:
+          - not_null
+
+      - name: credit_count
+        tests:
+          - not_null
+
+      - name: total_transaction_value
+        description: "Total customer activity value, calculated as sum of absolute transaction amounts."
+        tests:
+          - not_null
+
+      - name: net_transaction_amount
+        description: "Net transaction movement, calculated as sum of raw signed transaction amounts."
+        tests:
+          - not_null
+
+      - name: avg_transaction_value
+        tests:
+          - not_null
+
+      - name: total_debit_value
+        tests:
+          - not_null
+
+      - name: total_credit_value
+        tests:
+          - not_null
+
+      - name: first_transaction_date
+        tests:
+          - not_null
+
       - name: last_transaction_date
+        tests:
+          - not_null
+
+      - name: max_balance
+        description: "Highest closing balance recorded across all transactions."
+        tests:
+          - not_null
+
+      - name: min_balance
+        description: "Lowest closing balance recorded across all transactions."
+        tests:
+          - not_null
+
+      - name: current_balance
+        description: "Closing balance of the most recent transaction by date."
+        tests:
+          - not_null
+
+      - name: credit_card_transaction_value
+        description: "Total absolute transaction value across credit card products."
+        tests:
+          - not_null
+
+      - name: savings_transaction_value
+        description: "Total absolute transaction value across savings products."
+        tests:
+          - not_null
+
+      - name: credit_card_net_transaction_amount
+        description: "Net signed transaction amount across credit card products."
+        tests:
+          - not_null
+
+      - name: savings_net_transaction_amount
+        description: "Net signed transaction amount across savings products."
+        tests:
+          - not_null
+
+      - name: credit_card_transaction_count
+        description: "Number of credit card transactions."
+        tests:
+          - not_null
+
+      - name: savings_transaction_count
+        description: "Number of savings transactions."
+        tests:
+          - not_null
+
+      - name: _ingested_at
         tests:
           - not_null

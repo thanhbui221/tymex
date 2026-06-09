@@ -46,13 +46,15 @@ Bronze uses `LEFT JOIN` at the gold layer so every customer in `silver_customers
 
 | Segment | Criteria | Rationale |
 |---------|----------|-----------|
-| `Premium` | `total_products >= 3` AND `total_transaction_value > 100,000` | High-product, high-value customers requiring differentiated service |
-| `Standard` | `total_products >= 2` | Multi-product customers with growth potential, regardless of transaction volume |
+| `Premium` | `has_credit_card = true` AND `total_transaction_value >= 100,000` | Credit card holders with high transaction activity — highest-value relationship type |
+| `Standard` | `is_multi_product = true` (2+ products of any type) | Multi-product customers with growth potential, regardless of transaction volume |
 | `Basic` | All others | New or single-product customers |
 
 Rules are evaluated top-down; a customer meeting Premium criteria is not re-evaluated for Standard.
 
-**Edge case**: A customer with 3+ products but negative `total_transaction_value` (net debit position) falls into Standard, not Premium — the 100k threshold applies to the sum, which can be negative.
+**Edge case**: A customer with a credit card but low transaction activity (`total_transaction_value < 100,000`) falls into Standard, not Premium. `total_transaction_value` is the sum of absolute transaction amounts — it is always >= 0 and represents activity volume, not net position. `net_transaction_amount` (signed sum) can be negative but is not used in segmentation.
+
+**Why `total_transaction_value` and not `net_transaction_amount` for the Premium threshold**: `total_transaction_value` captures throughput — a customer who moves 200k through their account is treated as high-value even if debits and credits roughly cancel out. Using `net_transaction_amount` would penalise active credit card spenders (net debit position) and reward passive savers with a single large deposit, which does not reflect engagement. `net_transaction_amount` is more appropriate for liquidity or risk analysis. If the business intent is specifically to reward net depositors, an additional condition on `net_transaction_amount > 0` could be added — confirm with business stakeholders.
 
 ### Product Metrics
 
@@ -99,7 +101,7 @@ Bronze models are thin views directly over raw source tables — no transformati
 
 ### Incremental Materialization
 
-`silver_customer_interactions`, `silver_customer_transactions`, and `customer_360` are incremental (merge on `customer_id`). `silver_customers` and `silver_customer_products` are full-refresh tables because the source data is relatively small and slow-changing.
+`silver_customer_interactions` and `silver_customer_transactions` are incremental (merge on `customer_id`). `customer_360` is a full-refresh table — it is rebuilt on every run by joining all silver models. `silver_customers` and `silver_customer_products` are also full-refresh tables because the source data is relatively small and slow-changing.
 
 Incremental models use `_ingested_at` as the watermark rather than the business timestamp (`interaction_date`, `transaction_date`). This avoids reprocessing issues caused by late-arriving records or timezone ambiguity in business timestamps.
 
@@ -134,11 +136,16 @@ Most silver models source from exactly one bronze model. The exception is `silve
 - `relationships`: `customer_360.customer_id` → `silver_customers.customer_id`
 
 ### Custom Business Rule Tests (`tests/`)
-| Test | Rule |
-|------|------|
-| `assert_active_customers_have_recent_activity` | Active customers must have interaction or transaction within 90 days |
-| `assert_premium_customers_meet_criteria` | Premium customers must have 3+ products AND total_transaction_value > 100,000 |
-| `assert_no_negative_counts` | age, days_since_signup, total_products, total_interactions, total_transactions must be >= 0 |
+
+Tests are split by layer and run as dedicated tasks — bronze tests gate silver builds, silver tests gate gold.
+
+| Test | Layer | Rule |
+|------|-------|------|
+| `assert_transaction_product_customer_match` | Bronze | Transactions must reference a product enrolled to the same customer |
+| `assert_customer_360_transaction_values_consistent` | Silver | `total_transaction_value = total_debit_value + total_credit_value` |
+| `assert_active_customers_have_recent_activity` | Gold | Active customers must have interaction or transaction within 90 days; `is_active_customer` and `customer_status` must be internally consistent |
+| `assert_premium_customers_meet_criteria` | Gold | Premium customers must have `has_credit_card = true` AND `total_transaction_value >= 100,000` |
+| `assert_no_negative_counts` | Gold | age, days_since_signup, total_products, total_interactions, total_transactions, and all count/value columns must be >= 0 |
 
 ---
 

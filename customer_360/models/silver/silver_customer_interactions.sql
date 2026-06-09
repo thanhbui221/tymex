@@ -6,26 +6,68 @@
     )
 }}
 
-SELECT
-    customer_id,
-    MAX(interaction_date) AS last_interaction_date,
-    COUNT(*) AS total_interactions,
-    COUNT(CASE WHEN UPPER(TRIM(interaction_type)) = 'EMAIL' THEN 1 END) AS email_interactions,
-    COUNT(CASE WHEN UPPER(TRIM(interaction_type)) = 'CHAT' THEN 1 END) AS chat_interactions,
-    DATEDIFF(DAY, MAX(interaction_date), CURRENT_DATE()) AS days_since_last_interaction,
-    MAX(_ingested_at) AS _ingested_at
-FROM {{ ref('bronze_crm_interactions') }}
-WHERE interaction_id IS NOT NULL
-{% if var('backfill_start', '') | trim != '' %}
-    AND customer_id IN (
-        SELECT DISTINCT customer_id
-        FROM {{ ref('bronze_crm_interactions') }}
-        WHERE _ingested_at >= '{{ var("backfill_start") }}'
-        {% if var('backfill_end', '') | trim != '' %}
-            AND _ingested_at < '{{ var("backfill_end") }}'
-        {% endif %}
-    )
-{% elif is_incremental() %}
-    AND _ingested_at > (SELECT MAX(_ingested_at) FROM {{ this }})
-{% endif %}
-GROUP BY customer_id
+with changed_customers as (
+
+    {% if is_incremental() %}
+
+        select distinct customer_id
+        from {{ ref('bronze_crm_interactions') }}
+        where _ingested_at > (
+            select coalesce(max(_ingested_at), cast('1970-01-01' as timestamp))
+            from {{ this }}
+        )
+
+    {% else %}
+
+        select distinct customer_id
+        from {{ ref('bronze_crm_interactions') }}
+
+    {% endif %}
+
+),
+
+base_interactions as (
+
+    select
+        i.interaction_id,
+        i.customer_id,
+        upper(trim(i.interaction_type)) as interaction_type,
+        cast(i.interaction_date as date) as interaction_date,
+        i._ingested_at
+
+    from {{ ref('bronze_crm_interactions') }} i
+
+    inner join changed_customers c
+        on i.customer_id = c.customer_id
+
+    where i.interaction_id is not null
+      and i.customer_id is not null
+
+),
+
+aggregated as (
+
+    select
+        customer_id,
+
+        count(*) as total_interactions,
+
+        sum(case when interaction_type = 'EMAIL' then 1 else 0 end) as email_interactions,
+        sum(case when interaction_type = 'CHAT' then 1 else 0 end) as chat_interactions,
+        sum(case when interaction_type = 'CALL' then 1 else 0 end) as call_interactions,
+
+        min(interaction_date) as first_interaction_date,
+        max(interaction_date) as last_interaction_date,
+
+        max_by(interaction_type, interaction_date) as last_interaction_type,
+
+        max(_ingested_at) as _ingested_at
+
+    from base_interactions
+
+    group by customer_id
+
+)
+
+select *
+from aggregated

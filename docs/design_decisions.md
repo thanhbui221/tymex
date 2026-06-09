@@ -32,11 +32,9 @@ Full configuration: [`customer_360/dbt_project.yml`](../customer_360/dbt_project
 | `silver_customer_products` | `table` (full refresh) | Same reasoning; enrollment data is relatively stable |
 | `silver_customer_interactions` | `incremental` (merge) | High-volume source (243k+); append-heavy; watermark-based processing avoids full scans |
 | `silver_customer_transactions` | `incremental` (merge) | Highest-volume source (887k+); same reasoning |
-| `customer_360` | `incremental` (merge) | Inherits from silver incrementals; avoids reprocessing 100k customer rows per run |
+| `customer_360` | `table` (full refresh) | Joins 4 silver sources; an incremental merge would require tracking which customers changed across all 4 upstreams simultaneously — complex and fragile. Full refresh is simpler, always consistent. |
 
 **Incremental watermark**: `_ingested_at` (load timestamp) is used rather than the business event timestamp (`transaction_date`, `interaction_date`). This avoids reprocessing failures caused by late-arriving records or timezone-ambiguous event times.
-
-**Gold watermarks**: `customer_360` carries two independent watermarks (`_interactions_ingested_at`, `_transactions_ingested_at`) to prevent cross-contamination — a new transaction batch should not trigger reprocessing of all customers just because the interaction watermark hasn't advanced.
 
 ---
 
@@ -118,7 +116,15 @@ See [`data_quality.md`](data_quality.md) Issue 2.
 
 **Rationale**: `dbt build` runs the model and its tests in sequence, blocking downstream tasks on failure. With `dbt run` + `dbt test` as separate tasks, a test failure sends an alert but all models have already been built — bad data in `silver_customers` (the FK anchor for all other silver models) would propagate into `silver_customer_products` and `customer_360` before the failure is caught. In an hourly pipeline, that means up to an hour of a corrupted gold table serving BI consumers.
 
-**Exception**: The custom business rule tests (`assert_*`) are singular tests — standalone DAG nodes with no model to build. They run as a final `dbt test --select test_type:singular` task after `customer_360` is built, not via `dbt build`.
+**Exception**: The custom business rule tests (`assert_*`) are singular tests — standalone DAG nodes with no model to build. They run as dedicated `dbt test` tasks, split by layer rather than lumped at the end:
+
+| Task | Runs after | Selects |
+|---|---|---|
+| `test_bronze` | (start of hourly run) | `assert_transaction_product_customer_match` — bronze referential integrity gates both silver builds |
+| `test_silver` | `build_silver_interactions` + `build_silver_transactions` | `assert_customer_360_transaction_values_consistent` — silver invariants gate gold build |
+| `test_gold` | `build_gold_customer_360` | `assert_no_negative_counts`, `assert_active_customers_have_recent_activity`, `assert_premium_customers_meet_criteria` |
+
+This fail-fast ordering means bad silver data never reaches gold, and a bronze integrity failure blocks the entire run before any compute is wasted.
 
 **Trade-off**: `dbt build` is a harder failure mode — a flaky test will block the entire downstream refresh. Teams that prefer soft failures (build everything, alert but don't block) should use `dbt run` + `dbt test` explicitly. For this pipeline, data correctness takes priority over refresh availability.
 
@@ -167,3 +173,58 @@ See [`databricks-workflows/`](../terraform/databricks-workflows/) for the Terraf
 **Why trace to exact date rather than always full-refresh**: Full refresh reprocesses 887k+ transactions regardless of how many records were actually affected. In production, a bug is typically traced to a specific ingestion batch — backfilling only that window is faster, leaves unaffected customers untouched, and reduces the blast radius if the backfill itself has an issue.
 
 See [`workflow_backfill.tf`](../terraform/databricks-workflows/workflow_backfill.tf) for the Terraform implementation.
+
+---
+
+## 10. Performance Optimization Strategies
+
+### 10.1 Liquid Clustering (Gold Table)
+
+Covered in detail in §4 and [`clustering_comparison.md`](clustering_comparison.md). The short version: Liquid Clustering on `customer_id` is self-maintaining — no manual `OPTIMIZE ZORDER BY` job needed. BI queries that filter or join on `customer_id` benefit from automatic file co-location.
+
+### 10.2 Small File Compaction (Incremental Silver Tables)
+
+`silver_customer_interactions` and `silver_customer_transactions` use incremental merge. Each hourly run writes a small set of new/updated Parquet files. Over time this accumulates thousands of small files, degrading read performance for the gold full-refresh join.
+
+**Mitigation**: Run `OPTIMIZE` on both tables after each incremental merge. This is handled as a post-hook in the hourly workflow — after `build_silver_interactions` and `build_silver_transactions` complete, an `OPTIMIZE` step compacts files before `build_gold_customer_360` runs.
+
+```sql
+OPTIMIZE silver_customer_interactions;
+OPTIMIZE silver_customer_transactions;
+```
+
+Without this, the gold table rebuild reads fragmented files on every hourly run. At 887k+ transaction rows growing continuously, this compounds quickly.
+
+**Target file size**: Delta defaults to 128 MB per file. No override is applied here — the default is appropriate for the current data volume. Revisit if table size exceeds ~100 GB.
+
+### 10.3 Bronze as Views — Re-read Risk
+
+All bronze models are `view`. This means every dbt model that references a bronze view re-executes a full scan of the underlying raw Delta table at query time. In this pipeline each bronze table is referenced by exactly one silver model, so there is no fan-out problem today.
+
+**Risk**: If a future model references the same bronze view twice in the same run (e.g. a new silver model that self-joins bronze_transaction_history), the raw table will be scanned twice. The mitigation is to materialise that bronze model as a `table` or use `{{ this }}` caching — but this is not a current issue.
+
+### 10.4 Photon Accelerator
+
+The Databricks workflows are provisioned on clusters with Photon enabled (see [`workflow_hourly_incremental.tf`](../terraform/databricks-workflows/workflow_hourly_incremental.tf)). Photon provides the largest gains for:
+
+- The gold full-refresh join (4-way join across silver tables)
+- `OPTIMIZE` compaction on the incremental silver tables
+- `silver_customer_transactions` aggregations (`SUM`, `MAX`, `MIN`, `AVG`, `MAX_BY` over 887k+ rows)
+
+The backfill job also runs on a Photon cluster — full-refresh backfills on the transactions table are the most compute-intensive operation in the pipeline.
+
+### 10.5 Cluster Sizing
+
+| Job | Cluster type | Rationale |
+|-----|-------------|-----------|
+| Hourly incremental | Single-node or small multi-node | Incremental silver merges touch a small subset of customers per run; gold full-refresh is a join of pre-aggregated silver tables (one row per customer) — low shuffle |
+| Daily full-refresh | Same as hourly | `silver_customers` and `silver_customer_products` are ≤100k rows — no need for large cluster |
+| Backfill | Larger multi-node | Full-refresh of 887k+ transaction rows with aggregation; higher parallelism justified |
+
+Cluster sizes are defined in Terraform and should be reviewed if source volumes grow significantly beyond current levels.
+
+### 10.6 Delta Result Caching
+
+Databricks caches Delta table scan results in memory on the cluster. The gold table (`customer_360`) benefits from this when BI tools issue repeated queries within the same cluster session — the first query pays the scan cost, subsequent queries are served from cache.
+
+**Implication for scheduling**: The hourly gold rebuild invalidates the cache. BI queries issued immediately after a rebuild will pay a full scan. If query latency at the top of the hour is a concern, consider pre-warming the cache by running a lightweight `SELECT COUNT(*) FROM customer_360` as a post-build step.

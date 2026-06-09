@@ -1,111 +1,185 @@
 {{
     config(
-        materialized='incremental',
-        unique_key='customer_id',
-        incremental_strategy='merge'
+        materialized='table'
     )
 }}
 
-SELECT
-    -- demographics
-    c.customer_id,
-    c.first_name,
-    c.last_name,
-    c.email,
-    c.mobile_clean,
-    c.gender,
-    c.age,
-    c.signup_date,
-    c.days_since_signup,
+with joined as (
 
-    -- product holdings
-    COALESCE(p.total_products, 0)            AS total_products,
-    COALESCE(p.credit_card_count, 0)         AS credit_card_count,
-    COALESCE(p.savings_count, 0)             AS savings_count,
-    p.max_credit_limit,
-    p.first_product_date,
-    p.latest_product_date,
+    select
+        c.customer_id,
 
-    -- interactions
-    i.last_interaction_date,
-    COALESCE(i.total_interactions, 0)        AS total_interactions,
-    COALESCE(i.email_interactions, 0)        AS email_interactions,
-    COALESCE(i.chat_interactions, 0)         AS chat_interactions,
-    i.days_since_last_interaction,
+        -- customer profile
+        c.first_name,
+        c.last_name,
+        c.full_name,
+        c.email,
+        c.mobile_clean,
+        c.gender,
+        c.date_of_birth,
+        c.age,
+        c.age_band,
+        c.signup_date,
+        c.days_since_signup,
 
-    -- transactions
-    COALESCE(t.total_transactions, 0)             AS total_transactions,
-    COALESCE(t.debit_count, 0)                    AS debit_count,
-    COALESCE(t.credit_count, 0)                   AS credit_count,
-    t.total_transaction_value,
-    t.avg_transaction_amount,
-    t.max_balance,
-    t.min_balance,
-    t.current_balance,
-    t.last_transaction_date,
-    t.days_since_last_transaction,
-    COALESCE(t.credit_card_transaction_value, 0)  AS credit_card_transaction_value,
-    COALESCE(t.savings_transaction_value, 0)      AS savings_transaction_value,
-    COALESCE(t.credit_card_transaction_count, 0)  AS credit_card_transaction_count,
-    COALESCE(t.savings_transaction_count, 0)      AS savings_transaction_count,
+        -- product holdings
+        coalesce(p.total_products, 0) as total_products,
+        coalesce(p.credit_card_count, 0) as credit_card_count,
+        coalesce(p.savings_count, 0) as savings_count,
+        p.max_credit_limit,
+        p.total_credit_limit,
+        p.first_product_date,
+        p.latest_product_date,
+        coalesce(p.has_credit_card, false) as has_credit_card,
+        coalesce(p.has_savings, false) as has_savings,
+        coalesce(p.is_multi_product, false) as is_multi_product,
+        coalesce(p.product_segment, 'No Product') as product_segment,
 
-    -- business logic
-    CASE
-        WHEN i.days_since_last_interaction <= 90
-          OR t.days_since_last_transaction  <= 90 THEN 'Active'
-        ELSE 'Inactive'
-    END AS customer_status,
+        -- CRM interactions
+        coalesce(i.total_interactions, 0) as total_interactions,
+        coalesce(i.email_interactions, 0) as email_interactions,
+        coalesce(i.chat_interactions, 0) as chat_interactions,
+        coalesce(i.call_interactions, 0) as call_interactions,
+        i.first_interaction_date,
+        i.last_interaction_date,
+        i.last_interaction_type,
 
-    CASE
-        WHEN COALESCE(p.total_products, 0) >= 3
-         AND t.total_transaction_value > 100000 THEN 'Premium'
-        WHEN COALESCE(p.total_products, 0) >= 2  THEN 'Standard'
-        ELSE 'Basic'
-    END AS customer_segment,
+        -- transactions
+        coalesce(t.total_transactions, 0) as total_transactions,
+        coalesce(t.debit_count, 0) as debit_count,
+        coalesce(t.credit_count, 0) as credit_count,
 
-    -- derived metrics
-    CASE WHEN COALESCE(p.max_credit_limit, 0) > 0
-         THEN ABS(t.credit_card_transaction_value) / p.max_credit_limit
-    END AS credit_utilization,
+        coalesce(t.total_transaction_value, 0) as total_transaction_value,
+        coalesce(t.net_transaction_amount, 0) as net_transaction_amount,
+        coalesce(t.avg_transaction_value, 0) as avg_transaction_value,
 
-    CASE WHEN c.days_since_signup > 0
-         THEN COALESCE(t.total_transactions, 0) * 30.0 / c.days_since_signup
-    END AS monthly_transaction_frequency,
+        coalesce(t.total_debit_value, 0) as total_debit_value,
+        coalesce(t.total_credit_value, 0) as total_credit_value,
 
-    CASE
-        WHEN c.days_since_signup < 90   THEN 'New'
-        WHEN c.days_since_signup < 365  THEN 'Growing'
-        WHEN c.days_since_signup < 1095 THEN 'Established'
-        ELSE 'Mature'
-    END AS customer_lifecycle_stage,
+        t.max_balance,
+        t.min_balance,
+        t.current_balance,
 
-    CASE WHEN COALESCE(p.credit_card_count, 0) > 0 THEN TRUE ELSE FALSE END AS has_credit_card,
-    CASE WHEN COALESCE(p.savings_count, 0) > 0     THEN TRUE ELSE FALSE END AS has_savings,
-    CASE WHEN COALESCE(p.total_products, 0) >= 2   THEN TRUE ELSE FALSE END AS is_multi_product,
+        t.first_transaction_date,
+        t.last_transaction_date,
 
-    -- separate watermarks per silver source to avoid cross-contamination
-    COALESCE(i._ingested_at, CAST('1970-01-01' AS TIMESTAMP)) AS _interactions_ingested_at,
-    COALESCE(t._ingested_at, CAST('1970-01-01' AS TIMESTAMP)) AS _transactions_ingested_at
+        coalesce(t.credit_card_transaction_value, 0) as credit_card_transaction_value,
+        coalesce(t.savings_transaction_value, 0) as savings_transaction_value,
+        coalesce(t.credit_card_net_transaction_amount, 0) as credit_card_net_transaction_amount,
+        coalesce(t.savings_net_transaction_amount, 0) as savings_net_transaction_amount,
+        coalesce(t.credit_card_transaction_count, 0) as credit_card_transaction_count,
+        coalesce(t.savings_transaction_count, 0) as savings_transaction_count,
 
-FROM {{ ref('silver_customers') }} c
-LEFT JOIN {{ ref('silver_customer_products') }}     p ON c.customer_id = p.customer_id
-LEFT JOIN {{ ref('silver_customer_interactions') }} i ON c.customer_id = i.customer_id
-LEFT JOIN {{ ref('silver_customer_transactions') }} t ON c.customer_id = t.customer_id
+        -- source watermarks
+        coalesce(c._ingested_at, cast('1970-01-01' as timestamp)) as _customer_ingested_at,
+        coalesce(p._ingested_at, cast('1970-01-01' as timestamp)) as _products_ingested_at,
+        coalesce(i._ingested_at, cast('1970-01-01' as timestamp)) as _interactions_ingested_at,
+        coalesce(t._ingested_at, cast('1970-01-01' as timestamp)) as _transactions_ingested_at
 
-{% if var('backfill_start', '') | trim != '' %}
-WHERE (
-    i._ingested_at >= '{{ var("backfill_start") }}'
-    OR t._ingested_at >= '{{ var("backfill_start") }}'
+    from {{ ref('silver_customers') }} c
+
+    left join {{ ref('silver_customer_products') }} p
+        on c.customer_id = p.customer_id
+
+    left join {{ ref('silver_customer_interactions') }} i
+        on c.customer_id = i.customer_id
+
+    left join {{ ref('silver_customer_transactions') }} t
+        on c.customer_id = t.customer_id
+
+),
+
+activity as (
+
+    select
+        *,
+
+        case
+            when last_transaction_date is null and last_interaction_date is null then null
+            when last_transaction_date is null then last_interaction_date
+            when last_interaction_date is null then last_transaction_date
+            else greatest(last_transaction_date, last_interaction_date)
+        end as last_activity_date
+
+    from joined
+
+),
+
+final as (
+
+    select
+        *,
+
+        datediff(current_date(), last_transaction_date) as days_since_last_transaction,
+        datediff(current_date(), last_interaction_date) as days_since_last_interaction,
+        datediff(current_date(), last_activity_date) as days_since_last_activity,
+
+        case
+            when last_activity_date is not null
+             and datediff(current_date(), last_activity_date) <= {{ var('active_days_threshold') }}
+                then true
+            else false
+        end as is_active_customer,
+
+        case
+            when last_activity_date is null then 'Never Active'
+            when datediff(current_date(), last_activity_date) <= {{ var('active_days_threshold') }} then 'Active'
+            when datediff(current_date(), last_activity_date) <= {{ var('at_risk_days_threshold') }} then 'At Risk'
+            else 'Dormant'
+        end as customer_status,
+
+        case
+            when total_transaction_value >= {{ var('high_value_transaction_threshold') }} then 'High Value'
+            when total_transaction_value >= {{ var('medium_value_transaction_threshold') }} then 'Medium Value'
+            when total_transaction_value > 0 then 'Low Value'
+            else 'No Transaction'
+        end as customer_value_segment,
+
+        case
+            when has_credit_card = true
+             and total_transaction_value >= {{ var('premium_transaction_threshold') }} then 'Premium'
+            when is_multi_product = true then 'Standard'
+            else 'Basic'
+        end as customer_segment,
+
+        case
+            when total_interactions >= {{ var('highly_engaged_interaction_threshold') }} then 'Highly Engaged'
+            when total_interactions >= {{ var('moderately_engaged_interaction_threshold') }} then 'Moderately Engaged'
+            when total_interactions > 0 then 'Low Engagement'
+            else 'No CRM Engagement'
+        end as engagement_segment,
+
+        case
+            when coalesce(max_credit_limit, 0) > 0
+                then credit_card_transaction_value / max_credit_limit
+            else null
+        end as credit_card_activity_to_limit_ratio,
+
+        case
+            when days_since_signup > 0
+                then total_transactions * 30.0 / days_since_signup
+            else null
+        end as monthly_transaction_frequency,
+
+        case
+            when days_since_signup < {{ var('lifecycle_new_days') }} then 'New'
+            when days_since_signup < {{ var('lifecycle_growing_days') }} then 'Growing'
+            when days_since_signup < {{ var('lifecycle_established_days') }} then 'Established'
+            else 'Mature'
+        end as customer_lifecycle_stage,
+
+        greatest(
+            _customer_ingested_at,
+            _products_ingested_at,
+            _interactions_ingested_at,
+            _transactions_ingested_at
+        ) as _latest_source_ingested_at,
+
+        current_timestamp() as _gold_updated_at
+
+    from activity
+
 )
-{% if var('backfill_end', '') | trim != '' %}
-AND (
-    i._ingested_at < '{{ var("backfill_end") }}'
-    OR t._ingested_at < '{{ var("backfill_end") }}'
-)
-{% endif %}
-{% elif is_incremental() %}
-WHERE
-    i._ingested_at > (SELECT COALESCE(MAX(_interactions_ingested_at), CAST('1970-01-01' AS TIMESTAMP)) FROM {{ this }})
-    OR
-    t._ingested_at > (SELECT COALESCE(MAX(_transactions_ingested_at), CAST('1970-01-01' AS TIMESTAMP)) FROM {{ this }})
-{% endif %}
+
+select *
+from final

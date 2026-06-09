@@ -63,18 +63,32 @@ Purpose: validate completeness and correctness of the final reporting table.
 
 ### Custom business rule tests (`tests/`)
 
-Purpose: verify that business logic is correctly implemented, not just that columns are populated. These tests fail if any rows are returned.
+Purpose: verify that business logic is correctly implemented, not just that columns are populated. These tests fail if any rows are returned. Tests are split by layer and run as dedicated tasks in the pipeline — bronze tests gate silver builds, silver tests gate the gold build, gold tests run last.
+
+**Bronze** (`test_bronze` task)
+
+**`assert_transaction_product_customer_match`**
+- LEFT JOINs `bronze_transaction_history` to `bronze_product_enrollments` on `product_id` and selects rows where `p.customer_id IS NULL OR t.customer_id <> p.customer_id`.
+- Guards against transactions referencing a product enrolled to a different customer — would corrupt product-type breakdowns (`credit_card_transaction_value`, `savings_transaction_value`) in silver.
+
+**Silver** (`test_silver` task)
+
+**`assert_customer_360_transaction_values_consistent`**
+- Selects any customer from `silver_customer_transactions` where `round(total_transaction_value, 2) <> round(total_debit_value + total_credit_value, 2)`.
+- Guards against arithmetic drift in the aggregation logic — `total_transaction_value` must always equal the sum of its debit and credit components.
+
+**Gold** (`test_gold` task)
 
 **`assert_active_customers_have_recent_activity`**
-- Selects any customer where `customer_status = 'Active'` but both `days_since_last_interaction > 90` (or NULL) and `days_since_last_transaction > 90` (or NULL).
-- Guards against a regression in the `customer_status` logic — a customer with no recent activity must never be marked Active.
+- Selects any customer where `customer_status = 'Active'` but `days_since_last_activity > 90` or `last_activity_date IS NULL`; or where `is_active_customer = true` but `customer_status <> 'Active'`; or where `customer_status = 'Never Active'` but `last_activity_date IS NOT NULL`.
+- Guards against a regression in the `customer_status` / `is_active_customer` derivation — all three flags must be internally consistent.
 
 **`assert_premium_customers_meet_criteria`**
-- Selects any customer where `customer_segment = 'Premium'` but `total_products < 3` or `total_transaction_value <= 100,000`.
+- Selects any customer where `customer_segment = 'Premium'` but `has_credit_card <> true` or `total_transaction_value < 100,000`.
 - Guards against a regression in the segmentation logic — Premium must require both conditions simultaneously.
 
 **`assert_no_negative_counts`**
-- Selects any customer where `age`, `days_since_signup`, `total_products`, `total_interactions`, `total_transactions`, `credit_card_count`, or `savings_count` is negative.
+- Selects any customer where `age`, `days_since_signup`, `total_products`, `total_interactions`, `total_transactions`, `credit_card_count`, `savings_count`, or any transaction/interaction count or value column is negative.
 - Guards against bad DATEDIFF results (e.g. future dates in source), sign inversion bugs, or aggregation errors producing impossible counts.
 
 ---
@@ -114,18 +128,9 @@ Purpose: verify that business logic is correctly implemented, not just that colu
 
 ---
 
-### Issue 3 — `'Call'` Interaction Type Unhandled in Silver `[MEDIUM]`
+### ~~Issue 3 — `'Call'` Interaction Type Unhandled in Silver~~ `[RESOLVED]`
 
-**Finding:** `crm_interactions.interaction_type` contains three values: Chat (65%), Email (25%), Call (10%). `silver_customer_interactions` only breaks down `Email` and `Chat` — `Call` interactions are not counted in any breakdown column.
-
-**Impact on business metrics:**
-- `total_interactions` is correct (counts all rows regardless of type).
-- There is no `call_interactions` column — 10% of interaction volume is invisible in channel reporting.
-- Customers who only contacted the bank via phone will show `email_interactions = 0` and `chat_interactions = 0`, giving a false impression of zero channel-specific engagement.
-
-**Remediation:**
-1. Add `call_interactions` column to `silver_customer_interactions` and propagate to `customer_360`.
-2. Consider a more flexible pattern (pivot macro or dynamic `COUNT(CASE WHEN)` per type) so new interaction types don't require model changes.
+`call_interactions` column has been added to `silver_customer_interactions` and propagated to `customer_360`. All three channels (Email, Chat, Call) are now broken out. `last_interaction_type` is upper-cased and validated with `accepted_values: ['EMAIL', 'CHAT', 'CALL']` in the silver schema.
 
 ---
 

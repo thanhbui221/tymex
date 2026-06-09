@@ -4,12 +4,12 @@ models:
   - name: customer_360
     description: >
       Unified customer 360 view. One row per customer. Gold layer joining all
-      silver models — demographics, product holdings, CRM interactions, and
-      financial transactions.
+      silver models: demographics, product holdings, CRM interactions, and
+      financial transaction metrics.
+
     columns:
-      # Uniqueness & integrity
       - name: customer_id
-        description: "Unique customer identifier"
+        description: "Unique customer identifier."
         tests:
           - unique
           - not_null
@@ -17,101 +17,300 @@ models:
               to: ref('silver_customers')
               field: customer_id
 
-      # Completeness
       - name: first_name
         tests:
           - not_null
+
       - name: last_name
         tests:
           - not_null
+
+      - name: full_name
+        tests:
+          - not_null
+
       - name: email
         tests:
           - not_null
+
+      - name: mobile_clean
+        description: "Digits-only mobile number."
+        tests:
+          - not_null
+
+      - name: gender
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Male', 'Female', 'Other', 'Unknown', 'Prefer not to say']
+
+      - name: date_of_birth
+        tests:
+          - not_null
+
       - name: age
-        description: "Age derived from date_of_birth. Must be >= 0."
+        description: "Age derived from date_of_birth."
         tests:
           - not_null
+
+      - name: age_band
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Under 18', '18-24', '25-34', '35-44', '45-54', '55-64', '65+']
+
+      - name: signup_date
+        tests:
+          - not_null
+
       - name: days_since_signup
-        description: "Days since signup_date. Must be >= 0."
+        description: "Days since customer signup date."
         tests:
           - not_null
+
       - name: total_products
         description: "Total enrolled products. 0 for customers with no enrollments."
         tests:
           - not_null
+
+      - name: credit_card_count
+        tests:
+          - not_null
+
+      - name: savings_count
+        tests:
+          - not_null
+
+      - name: max_credit_limit
+        description: "Highest credit limit across credit card enrollments. Null for customers with no credit card."
+
+      - name: total_credit_limit
+        description: "Sum of credit limits across all credit card enrollments."
+        tests:
+          - not_null
+
+      - name: first_product_date
+        description: "Date of earliest product enrollment."
+
+      - name: latest_product_date
+        description: "Date of most recent product enrollment."
+
+      - name: product_segment
+        description: "Product holding segment based on savings and credit card ownership."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Savings + Credit Card', 'Credit Card Only', 'Savings Only', 'No Product']
+
+      - name: has_credit_card
+        description: "TRUE if the customer holds at least one credit card product."
+        tests:
+          - not_null
+
+      - name: has_savings
+        description: "TRUE if the customer holds at least one savings product."
+        tests:
+          - not_null
+
+      - name: is_multi_product
+        description: "TRUE if the customer holds 2 or more products."
+        tests:
+          - not_null
+
       - name: total_interactions
         description: "Total CRM interactions. 0 for customers with no CRM history."
         tests:
           - not_null
+
+      - name: email_interactions
+        tests:
+          - not_null
+
+      - name: chat_interactions
+        tests:
+          - not_null
+
+      - name: call_interactions
+        tests:
+          - not_null
+
+      - name: first_interaction_date
+        description: "Date of earliest CRM interaction."
+
+      - name: last_interaction_date
+        description: "Date of most recent CRM interaction."
+
+      - name: last_interaction_type
+        description: "Channel of the most recent CRM interaction."
+        tests:
+          - accepted_values:
+              values: ['EMAIL', 'CHAT', 'CALL']
+
       - name: total_transactions
         description: "Total financial transactions. 0 for customers with no transaction history."
         tests:
           - not_null
 
-      # Accepted values — categorical fields
+      - name: debit_count
+        description: "Number of negative (debit) transactions."
+        tests:
+          - not_null
+
+      - name: credit_count
+        description: "Number of positive (credit) transactions."
+        tests:
+          - not_null
+
+      - name: total_transaction_value
+        description: "Total customer activity value, calculated as sum of absolute transaction amounts."
+        tests:
+          - not_null
+
+      - name: net_transaction_amount
+        description: "Net transaction movement, calculated as sum of signed transaction amounts."
+        tests:
+          - not_null
+
+      - name: avg_transaction_value
+        description: "Average absolute transaction value."
+        tests:
+          - not_null
+
+      - name: total_debit_value
+        description: "Total absolute value of negative transaction amounts."
+        tests:
+          - not_null
+
+      - name: total_credit_value
+        description: "Total absolute value of positive transaction amounts."
+        tests:
+          - not_null
+
+      - name: max_balance
+        description: "Highest closing balance recorded across all transactions. Null for customers with no transactions."
+
+      - name: min_balance
+        description: "Lowest closing balance recorded across all transactions. Null for customers with no transactions."
+
+      - name: current_balance
+        description: "Closing balance of the most recent transaction by date. Null for customers with no transactions."
+
+      - name: first_transaction_date
+        description: "Date of earliest transaction."
+
+      - name: last_transaction_date
+        description: "Date of most recent transaction."
+
+      - name: credit_card_transaction_value
+        description: "Total activity value across credit card products, calculated using absolute transaction amounts."
+        tests:
+          - not_null
+
+      - name: savings_transaction_value
+        description: "Total activity value across savings products, calculated using absolute transaction amounts."
+        tests:
+          - not_null
+
+      - name: credit_card_net_transaction_amount
+        description: "Net signed transaction amount across credit card products."
+        tests:
+          - not_null
+
+      - name: savings_net_transaction_amount
+        description: "Net signed transaction amount across savings products."
+        tests:
+          - not_null
+
+      - name: credit_card_transaction_count
+        tests:
+          - not_null
+
+      - name: savings_transaction_count
+        tests:
+          - not_null
+
+      - name: last_activity_date
+        description: "Most recent date across last transaction date and last CRM interaction date."
+
+      - name: days_since_last_transaction
+        description: "Days since the customer's most recent transaction. Null if no transactions."
+
+      - name: days_since_last_interaction
+        description: "Days since the customer's most recent CRM interaction. Null if no interactions."
+
+      - name: days_since_last_activity
+        description: "Days since the customer's most recent transaction or CRM interaction."
+
+      - name: is_active_customer
+        description: "TRUE if customer had a transaction or CRM interaction within the last 90 days."
+        tests:
+          - not_null
+
       - name: customer_status
-        description: "Active if interaction or transaction within 90 days, otherwise Inactive"
+        description: "Customer activity status based on last transaction or CRM interaction."
         tests:
           - not_null
           - accepted_values:
-              values: ['Active', 'Inactive']
+              values: ['Never Active', 'Active', 'At Risk', 'Dormant']
+
+      - name: customer_value_segment
+        description: "Customer value segment based on total transaction activity value."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['High Value', 'Medium Value', 'Low Value', 'No Transaction']
+
       - name: customer_segment
-        description: "Premium (3+ products AND >100k tx value), Standard (2+ products), Basic (all others)"
+        description: "Premium if customer has credit card and >=100k total transaction activity value; Standard if multi-product; Basic otherwise."
         tests:
           - not_null
           - accepted_values:
               values: ['Premium', 'Standard', 'Basic']
 
-      # Interaction channel breakdown
-      - name: email_interactions
-        description: "Count of CRM interactions via email. 0 for customers with no email interactions."
+      - name: engagement_segment
+        description: "CRM engagement segment based on total interaction count."
         tests:
           - not_null
-      - name: chat_interactions
-        description: "Count of CRM interactions via chat. 0 for customers with no chat interactions."
-        tests:
-          - not_null
+          - accepted_values:
+              values: ['Highly Engaged', 'Moderately Engaged', 'Low Engagement', 'No CRM Engagement']
 
-      # Transaction product-type breakdown
-      - name: credit_card_transaction_value
-        description: "Net transaction value across credit card products. 0 for customers with no credit card transactions."
-        tests:
-          - not_null
-      - name: savings_transaction_value
-        description: "Net transaction value across savings products. 0 for customers with no savings transactions."
-        tests:
-          - not_null
-      - name: credit_card_transaction_count
-        description: "Number of transactions on credit card products. 0 for customers with no credit card transactions."
-        tests:
-          - not_null
-      - name: savings_transaction_count
-        description: "Number of transactions on savings products. 0 for customers with no savings transactions."
-        tests:
-          - not_null
-      - name: current_balance
-        description: "Closing balance from the most recent transaction. NULL for customers with no transactions."
+      - name: credit_card_activity_to_limit_ratio
+        description: "Lifetime credit card transaction volume divided by max credit limit. Measures card engagement relative to limit, not true credit utilization (which would require current outstanding balance)."
 
-      # Derived metrics
-      - name: credit_utilization
-        description: "ABS(credit_card_transaction_value) / max_credit_limit. NULL for savings-only or zero-limit customers."
       - name: monthly_transaction_frequency
-        description: "Total transactions normalised to a 30-day window (total_transactions * 30 / days_since_signup). NULL for day-0 customers."
+        description: "Total transactions normalised to a 30-day window."
+
       - name: customer_lifecycle_stage
-        description: "Tenure bucket: New (<90d), Growing (90–364d), Established (1–3yr), Mature (3yr+)"
+        description: "Tenure bucket: New, Growing, Established, or Mature."
         tests:
           - not_null
           - accepted_values:
               values: ['New', 'Growing', 'Established', 'Mature']
-      - name: has_credit_card
-        description: "TRUE if the customer holds at least one credit card product."
+
+      - name: _customer_ingested_at
+        description: "Source ingestion timestamp from silver_customers."
         tests:
           - not_null
-      - name: has_savings
-        description: "TRUE if the customer holds at least one savings product."
+
+      - name: _products_ingested_at
+        description: "Source ingestion timestamp from silver_customer_products."
         tests:
           - not_null
-      - name: is_multi_product
-        description: "TRUE if the customer holds 2 or more products."
+
+      - name: _interactions_ingested_at
+        description: "Source ingestion timestamp from silver_customer_interactions."
+        tests:
+          - not_null
+
+      - name: _transactions_ingested_at
+        description: "Source ingestion timestamp from silver_customer_transactions."
+        tests:
+          - not_null
+
+      - name: _latest_source_ingested_at
+        tests:
+          - not_null
+
+      - name: _gold_updated_at
         tests:
           - not_null
