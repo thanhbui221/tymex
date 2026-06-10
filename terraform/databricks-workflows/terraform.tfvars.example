@@ -4,7 +4,7 @@
 databricks_host  = "https://your-workspace.cloud.databricks.com"
 databricks_token = "dapi1234567890abcdef"  # Generate in User Settings > Access Tokens
 
-dbt_project_path = "/dbfs/dbt/customer_360"
+dbt_project_path = "/Workspace/Shared/dbt/customer_360"
 
 cluster_id = "1234-567890-abcdef12"  # Existing cluster ID
 

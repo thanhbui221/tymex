@@ -10,9 +10,9 @@ variable "databricks_token" {
 }
 
 variable "dbt_project_path" {
-  description = "Path to dbt project directory in DBFS"
+  description = "Path to dbt project scripts in Databricks Workspace"
   type        = string
-  default     = "/dbfs/dbt/customer_360"
+  default     = "/Workspace/Shared/dbt/customer_360"
 }
 
 variable "sql_warehouse_id" {

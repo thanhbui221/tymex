@@ -40,22 +40,36 @@ Monitoring:
 1. **Databricks Workspace** (Community Edition or paid tier)
 2. **Existing Databricks Cluster** (for running dbt jobs)
 3. **SQL Warehouse** (for monitoring queries)
-4. **dbt Project** deployed to DBFS at `/dbfs/dbt/customer_360`
+4. **dbt Project** scripts uploaded to Databricks Workspace at `/Workspace/Shared/dbt/customer_360`
 5. **Terraform** installed locally (`brew install terraform`)
 
 ## Setup
 
-### 1. Upload Helper Scripts to DBFS
+### 1. Upload Helper Scripts to Workspace
 
-Upload the maintenance scripts to Databricks:
+DBFS root is disabled on this workspace (Unity Catalog security default). Upload scripts to Workspace Files instead:
 
 ```bash
+# Create directories
+databricks workspace mkdirs /Workspace/Shared/dbt/customer_360/maintenance
+
 # Upload dbt runner
-databricks fs cp ../../databricks-scripts/run_dbt.py dbfs:/dbt/customer_360/run_dbt.py
+databricks workspace import --file ../../databricks-scripts/run_dbt.py \
+  --format SOURCE --language PYTHON --overwrite \
+  /Workspace/Shared/dbt/customer_360/run_dbt.py
 
 # Upload maintenance scripts
-databricks fs cp ../../databricks-scripts/maintenance/optimize_tables.py dbfs:/dbt/customer_360/maintenance/optimize_tables.py
-databricks fs cp ../../databricks-scripts/maintenance/vacuum_tables.py dbfs:/dbt/customer_360/maintenance/vacuum_tables.py
+databricks workspace import --file ../../databricks-scripts/maintenance/optimize_tables.py \
+  --format SOURCE --language PYTHON --overwrite \
+  /Workspace/Shared/dbt/customer_360/maintenance/optimize_tables.py
+
+databricks workspace import --file ../../databricks-scripts/maintenance/vacuum_tables.py \
+  --format SOURCE --language PYTHON --overwrite \
+  /Workspace/Shared/dbt/customer_360/maintenance/vacuum_tables.py
+
+databricks workspace import --file ../../databricks-scripts/maintenance/cleanup_audit_tables.py \
+  --format SOURCE --language PYTHON --overwrite \
+  /Workspace/Shared/dbt/customer_360/maintenance/cleanup_audit_tables.py
 ```
 
 ### 2. Get Required IDs from Databricks
@@ -165,8 +179,11 @@ Configured email notifications for:
 - Verify cluster_id in terraform.tfvars
 - Ensure cluster is running or has auto-start enabled
 
-**"Path does not exist: /dbfs/dbt/customer_360"**
-- Upload dbt project and helper scripts first (see Setup step 1)
+**"Path does not exist: /Workspace/Shared/dbt/customer_360"**
+- Upload helper scripts first (see Setup step 1)
+
+**"Public DBFS root is disabled"**
+- Do not use `databricks fs cp` — DBFS root is disabled on this workspace. Use `databricks workspace import` instead (see Setup step 1)
 
 **"SQL Warehouse not accessible"**
 - Verify sql_warehouse_id in terraform.tfvars

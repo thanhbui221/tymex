@@ -39,6 +39,55 @@ resource "databricks_job" "daily_dimensions_refresh" {
     max_retries     = 2
   }
 
+  # Compact small files from the day's hourly incremental merges.
+  # Runs in parallel — neither depends on the dimension builds.
+  task {
+    task_key = "optimize_silver_interactions"
+
+    notebook_task {
+      notebook_path = "${var.dbt_project_path}/maintenance/optimize_tables.py"
+      base_parameters = {
+        table_name = "customer_360_db.silver_customer_interactions"
+      }
+    }
+
+    timeout_seconds = 1800
+    max_retries     = 1
+  }
+
+  task {
+    task_key = "optimize_silver_transactions"
+
+    notebook_task {
+      notebook_path = "${var.dbt_project_path}/maintenance/optimize_tables.py"
+      base_parameters = {
+        table_name = "customer_360_db.silver_customer_transactions"
+      }
+    }
+
+    timeout_seconds = 1800
+    max_retries     = 1
+  }
+
+  # Drop stale dbt audit tables daily to prevent Unity Catalog table quota exhaustion.
+  # store_failures: true creates one table per failing test; without cleanup these
+  # accumulate. DROP removes the table object itself (not just rows) so it frees quota.
+  # dbt recreates audit tables on the next test run only when failures occur.
+  task {
+    task_key = "cleanup_audit_tables"
+
+    notebook_task {
+      notebook_path = "${var.dbt_project_path}/maintenance/cleanup_audit_tables.py"
+      base_parameters = {
+        audit_schema    = "customer_360_db_dbt_test__audit"
+        retention_hours = "168"
+      }
+    }
+
+    timeout_seconds = 1800
+    max_retries     = 1
+  }
+
   email_notifications {
     on_failure                = var.notification_emails
     no_alert_for_skipped_runs = true
