@@ -144,10 +144,10 @@ dbt debug   # should print "All checks passed!"
 
 ```bash
 # First run (builds all layers)
-dbt run
+dbt build
 
 # Incremental updates (subsequent runs)
-dbt run --select silver_customer_interactions silver_customer_transactions customer_360
+dbt build --select silver_customer_interactions silver_customer_transactions customer_360
 
 # Run tests
 dbt test
@@ -162,17 +162,34 @@ dbt docs generate && dbt docs serve   # opens http://localhost:8080
 
 ## Step 5 — Deploy Workflows (Scheduled Automation)
 
-Sets up three Databricks jobs that keep the gold table current:
-- **Daily (2 AM UTC)** — full refresh of slow-changing dimensions
-- **Hourly** — incremental refresh of interactions, transactions, customer_360
-- **Weekly (Sun 3 AM UTC)** — OPTIMIZE and VACUUM maintenance
+Sets up four Databricks jobs that keep the gold table current:
+- **Hourly** — incremental merge of interactions and transactions; full refresh of customer_360
+- **Daily (2 AM UTC)** — full refresh of slow-changing dimensions (silver_customers, silver_customer_products); OPTIMIZE of incremental silver tables to compact the day's small files; drop stale dbt audit tables to prevent Unity Catalog table quota exhaustion
+- **Weekly (Sun 3 AM UTC)** — OPTIMIZE + VACUUM on all tables; VACUUM is critical for customer_360 to purge stale file versions left by hourly full refreshes
+- **Backfill (manual trigger only)** — windowed or full reprocess for schema changes, bug fixes, or business rule updates
 
-### 5a. Upload helper scripts to DBFS
+### 5a. Upload helper scripts to Workspace
+
+DBFS root is disabled on this workspace (Unity Catalog security default) — use `databricks workspace import` instead of `databricks fs cp`:
 
 ```bash
-databricks fs cp databricks-scripts/run_dbt.py dbfs:/dbt/customer_360/run_dbt.py
-databricks fs cp databricks-scripts/maintenance/optimize_tables.py dbfs:/dbt/customer_360/maintenance/optimize_tables.py
-databricks fs cp databricks-scripts/maintenance/vacuum_tables.py dbfs:/dbt/customer_360/maintenance/vacuum_tables.py
+databricks workspace mkdirs /Workspace/Shared/dbt/customer_360/maintenance
+
+databricks workspace import --file databricks-scripts/run_dbt.py \
+  --format SOURCE --language PYTHON --overwrite \
+  /Workspace/Shared/dbt/customer_360/run_dbt.py
+
+databricks workspace import --file databricks-scripts/maintenance/optimize_tables.py \
+  --format SOURCE --language PYTHON --overwrite \
+  /Workspace/Shared/dbt/customer_360/maintenance/optimize_tables.py
+
+databricks workspace import --file databricks-scripts/maintenance/vacuum_tables.py \
+  --format SOURCE --language PYTHON --overwrite \
+  /Workspace/Shared/dbt/customer_360/maintenance/vacuum_tables.py
+
+databricks workspace import --file databricks-scripts/maintenance/cleanup_audit_tables.py \
+  --format SOURCE --language PYTHON --overwrite \
+  /Workspace/Shared/dbt/customer_360/maintenance/cleanup_audit_tables.py
 ```
 
 ### 5b. Deploy

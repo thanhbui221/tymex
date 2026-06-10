@@ -74,6 +74,7 @@ tymex/
 4. **Presentation Materials** (Optional) → [`databricks-scripts/`](databricks-scripts/)
    - Screenshots or notebook exports from Databricks
    - Walkthrough of the solution
+   - Link to the presentation: https://docs.google.com/presentation/d/1cyhUtmfU4fpxw-QwgzmaTMCkPfYoqtjjKpf1U_Nw6NA/edit?usp=sharing
 
 ---
 
@@ -172,25 +173,28 @@ See [`schema.md`](schema.md) for detailed table structures and sample data. See 
 Your documentation must be **clear and concise**, covering:
 
 ### 1. Data Model Design
-- Entity relationship diagrams
-- Table schemas and column descriptions
-- Grain and cardinality of each model layer
-
-→ [`docs/data_model_design.md`](docs/data_model_design.md) · [`docs/erd.svg`](docs/erd.svg) · [`schema.md`](schema.md)
+- Entity relationship diagrams. [`docs/erd.svg`](docs/erd.svg)
+- Table schemas and column descriptions. [`schema.md`](schema.md)
+- Grain and cardinality of each model layer. [`docs/data_model_design.md`](docs/data_model_design.md)
 
 ### 2. Data Lineage
-- Source-to-target mapping
+- Source-to-target mapping. 
 - Transformation flow across layers (raw → staging → intermediate → gold)
 - Dependencies between models
-
-→ [`docs/data_lineage.md`](docs/data_lineage.md) · [`docs/data_lineage.svg`](docs/data_lineage.svg)
+- [`docs/data_lineage.md`](docs/data_lineage.md)
 
 ### 3. Data Quality
 - Tests implemented and their purpose
 - Known data quality issues
 - Assumptions and limitations
 
-→ [`docs/data_quality.md`](docs/data_quality.md) · [`databricks-scripts/data_quality.py`](databricks-scripts/data_quality.py) · [`customer_360/models/bronze/schema.yml`](customer_360/models/bronze/schema.yml) · [`customer_360/models/silver/schema.yml`](customer_360/models/silver/schema.yml) · [`customer_360/models/gold/schema.yml`](customer_360/models/gold/schema.yml) · [`customer_360/tests/`](customer_360/tests/)
+Check all these related docs and code:
+- [`docs/data_quality.md`](docs/data_quality.md) 
+- [`databricks-scripts/data_quality.py`](databricks-scripts/data_quality.py)
+- [`customer_360/models/bronze/schema.yml`](customer_360/models/bronze/schema.yml)
+- [`customer_360/models/silver/schema.yml`](customer_360/models/silver/schema.yml)
+- [`customer_360/models/gold/schema.yml`](customer_360/models/gold/schema.yml)
+- [`customer_360/tests/`](customer_360/tests/)
 
 ### 4. Business Metrics
 - Definition of each calculated metric
@@ -205,8 +209,7 @@ Your documentation must be **clear and concise**, covering:
 - Trade-offs considered
 - Performance optimization strategies
 
-→ [`docs/design_decisions.md`](docs/design_decisions.md) · [`docs/clustering_comparison.md`](docs/clustering_comparison.md)
-
+→ [`docs/design_decisions.md`](docs/design_decisions.md)
 ---
 
 ## Getting Started

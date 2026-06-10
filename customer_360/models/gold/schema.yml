@@ -277,9 +277,6 @@ models:
       - name: credit_card_activity_to_limit_ratio
         description: "Lifetime credit card transaction volume divided by max credit limit. Measures card engagement relative to limit, not true credit utilization (which would require current outstanding balance)."
 
-      - name: monthly_transaction_frequency
-        description: "Total transactions normalised to a 30-day window."
-
       - name: customer_lifecycle_stage
         description: "Tenure bucket: New, Growing, Established, or Mature."
         tests:

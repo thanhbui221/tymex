@@ -156,12 +156,6 @@ final as (
         end as credit_card_activity_to_limit_ratio,
 
         case
-            when days_since_signup > 0
-                then total_transactions * 30.0 / days_since_signup
-            else null
-        end as monthly_transaction_frequency,
-
-        case
             when days_since_signup < {{ var('lifecycle_new_days') }} then 'New'
             when days_since_signup < {{ var('lifecycle_growing_days') }} then 'Growing'
             when days_since_signup < {{ var('lifecycle_established_days') }} then 'Established'

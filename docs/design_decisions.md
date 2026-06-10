@@ -21,7 +21,7 @@ The diagram covers the full pipeline: source systems → ingestion → Bronze/Si
 
 ---
 
-## 2. Materialization Strategy
+## 2. Materialization Strategy — `customer_360`: Full Refresh vs Incremental Upsert
 
 Full configuration: [`customer_360/dbt_project.yml`](../customer_360/dbt_project.yml)
 
@@ -36,6 +36,76 @@ Full configuration: [`customer_360/dbt_project.yml`](../customer_360/dbt_project
 
 **Incremental watermark**: `_ingested_at` (load timestamp) is used rather than the business event timestamp (`transaction_date`, `interaction_date`). This avoids reprocessing failures caused by late-arriving records or timezone-ambiguous event times.
 
+### Why `customer_360` is full refresh — detailed comparison
+
+The gold table joins all four silver models and derives a large number of business metrics. The choice between full refresh and incremental upsert has significant implications for correctness, not just performance.
+
+#### Full Refresh (current)
+
+| | |
+|---|---|
+| **How it works** | Every hourly run drops and rewrites the entire table by joining all four silver models |
+| **Scales with** | Customer count (not event volume — silver handles that) |
+
+**Pros:**
+
+1. **Always consistent across all four silver sources** — every row reflects the same point-in-time join. An incremental merge for customer A could mix a newly updated `silver_customer_interactions` row with a stale `silver_customer_transactions` row from a previous merge cycle, depending on which sources had delta that run.
+
+2. **Time-relative metrics are always correct for every customer** — `customer_360` derives many fields from `CURRENT_DATE()`:
+   - `days_since_last_activity`, `days_since_last_transaction`, `days_since_last_interaction`
+   - `age`, `days_since_signup`
+   - `customer_status` (`Active` → `At Risk` → `Dormant` transitions happen with the passage of time, not just on new events)
+   - `customer_lifecycle_stage` (`Growing` → `Established` → `Mature` advances automatically)
+
+   With incremental upsert, only customers with new silver data get reprocessed. A customer who goes quiet — no new transactions, no new interactions — never triggers a delta and their gold row is never updated. Their `customer_status` stays frozen as `'Active'` indefinitely even as they cross the 90-day and 180-day boundaries. Their `age` never increments past their birthday. **This is a silent correctness failure with real business impact.**
+
+3. **Self-healing** — a bug fix in silver (or a threshold change in dbt vars) propagates to all 100k customer rows on the next run. With incremental, only affected customers get the fix; silent rows remain incorrect until explicitly reprocessed.
+
+4. **Schema changes are trivial** — adding or removing a column is a `dbt build` away. Incremental models require `--full-refresh` for any schema change anyway, negating a run of incremental builds.
+
+5. **Scales better than it looks** — the gold table grain is 1 row per customer. Silver has already done all aggregation. The hourly full refresh is a 4-way join of four pre-aggregated tables (each 100k rows), not a raw event scan. At millions of customers this is still a bounded, predictable join.
+
+**Cons:**
+
+1. **Compute scales with customer count, not delta** — if 500 customers had new data this hour, all 100k are still reprocessed. At very large scale (tens of millions of customers) this becomes expensive.
+   *Counter-measure*: the incremental silver models absorb all event-volume work — gold only joins four pre-aggregated tables, each already collapsed to 1 row per customer. The full-refresh cost is bounded by customer count, not transaction or interaction volume. Photon is enabled on the hourly cluster, further reducing the join cost. At current scale this completes in well under the hourly window.
+
+2. **VACUUM overhead** — each rebuild marks the previous files as deleted. Without cleanup, stale file versions accumulate (168 hourly rebuilds × ~3–5 files each between Sunday runs).
+   *Counter-measure*: the weekly maintenance job (`workflow_weekly_maintenance.tf`) explicitly runs VACUUM on `customer_360` with 168-hour retention, clearing all stale file versions from the week's hourly rebuilds before they compound further.
+
+---
+
+#### Incremental Upsert (alternative)
+
+| | |
+|---|---|
+| **How it works** | Detect which `customer_id`s changed in any silver source since the last gold run; re-join and merge only those rows |
+| **Scales with** | Number of customers who had new data each run |
+
+**Pros:**
+
+1. **Compute scales with delta** — at large customer counts where only a fraction change each hour, incremental upsert is significantly cheaper per run.
+
+2. **Better ceiling for very large datasets** — at 50M+ customers, a full-refresh hourly join may exceed the refresh window; incremental is the only viable path.
+
+**Cons:**
+
+1. **Change detection across four sources is complex** — to correctly identify affected `customer_id`s, you need watermarks or Delta Change Data Feed from `silver_customers`, `silver_customer_products`, `silver_customer_interactions`, and `silver_customer_transactions` simultaneously. Missed watermarks or CDC gaps mean stale rows in gold with no alert.
+
+2. **Time-relative metrics go stale for quiet customers** — this is the fundamental problem described above. Every customer needs their derived time-relative fields recalculated on every run, regardless of whether they had new silver data. The only workaround is to force all customers into every incremental run — which is just a full refresh with extra complexity — or to move time-relative fields out of the stored table into a real-time view.
+
+3. **Cross-source consistency is harder to guarantee** — if `silver_customer_interactions` has new data for customer A but `silver_customer_transactions` does not, the merged row for A would reflect today's interaction state but potentially yesterday's transaction state.
+
+4. **Self-healing requires explicit backfill** — a bug fix or threshold change in dbt vars does not propagate automatically; a manual backfill is required to correct all affected rows.
+
+---
+
+#### Verdict
+
+Full refresh is the right choice for `customer_360` at current and foreseeable scale. The decisive factor is not performance but **correctness**: the time-relative derived metrics (`customer_status`, `age`, lifecycle stage, etc.) must be recalculated for every customer on every run regardless of activity. An incremental upsert that only reprocesses active customers would silently misclassify dormant customers — which are precisely the customers most in need of accurate status data for churn and re-engagement decisions.
+
+Incremental upsert becomes worth revisiting only if customer count grows to a scale where hourly full-refresh duration approaches or exceeds the refresh window, **and** time-relative metrics are refactored out of the stored table into a computed view.
+
 ---
 
 ## 3. Refresh Frequency — Hourly vs Daily
@@ -44,10 +114,10 @@ Full configuration: [`customer_360/dbt_project.yml`](../customer_360/dbt_project
 
 | Model | Frequency | Reason |
 |---|---|---|
-| `silver_customers` | Daily 2 AM | Demographics (name, DOB, email) change rarely — daily is sufficient. Full refresh on 100k rows is cheap. |
-| `silver_customer_products` | Daily 2 AM | Product enrollments are relatively stable events. New enrollments don't affect same-day activity metrics. |
-| `silver_customer_interactions` | Hourly | CRM interactions arrive continuously. `days_since_last_interaction` is used in `customer_status` — a stale value could misclassify an Active customer as Inactive within the same day. |
-| `silver_customer_transactions` | Hourly | Highest-volume source (887k+). Transactions are the primary signal for `customer_status` and `customer_segment` — freshness directly affects business decisions. |
+| `silver_customers` | Daily 2 AM | Demographics (name, DOB, email) change rarely and never intraday — a correction takes effect the next morning, which is acceptable. Full refresh on 100k rows is fast and simpler than tracking incremental deletes (e.g. email corrections). `age` and `days_since_signup` are recalculated in gold on every hourly run, so stale silver demographics don't affect time-relative metrics. |
+| `silver_customer_products` | Daily 2 AM | Product enrollments are low-frequency events — customers don't open or close accounts multiple times a day. A full refresh is appropriate because enrollment changes can include corrections or cancellations that are difficult to express as incremental upserts without CDC. New enrollments will flow into gold within the hour once the 2 AM rebuild completes. |
+| `silver_customer_interactions` | Hourly | CRM agents log interactions in real time — a customer who contacts support at 9 AM should appear Active in gold by 10 AM. `days_since_last_interaction` feeds directly into `customer_status`; a stale silver row could hold a customer at `'Dormant'` for hours after they've re-engaged. Incremental merge on `customer_id` keeps hourly compute low — only customers with new interactions since the last watermark are reprocessed. |
+| `silver_customer_transactions` | Hourly | Transactions drive `customer_status`, `customer_segment` (Premium ≥100k threshold), and `customer_value_segment` — all three affect real-time business decisions and BI dashboards. A large transaction processed at 2 PM should update a customer's segment before end-of-day reporting, not the following morning. Incremental merge is justified by source volume (887k+ rows) — only changed customers are reprocessed each hour, capping compute cost regardless of total table size. |
 | `customer_360` | Hourly | Inherits from the hourly incrementals. Refreshing gold less frequently than its silver inputs would mean BI consumers see stale status/segment values even after silver has updated. |
 
 **Scheduling dependency**: The daily job runs at 2 AM. The hourly job also fires at 2 AM. Because the hourly job depends on silver models that are rebuilt by the daily job, the daily job must complete before the 2 AM hourly run picks up fresh dimension data. In practice, the daily full-refresh is fast (100k rows) and completes well within the hour window — but this is an implicit dependency, not an enforced one. If the daily job ever runs long, the 2 AM hourly run will use the previous day's dimension data.
@@ -62,9 +132,11 @@ See [`databricks-workflows/`](../terraform/databricks-workflows/) for the Terraf
 
 Full analysis: [`docs/clustering_comparison.md`](clustering_comparison.md)
 
-**Decision**: Liquid Clustering on `customer_id` for the gold table (Databricks Runtime 13.3+).
+**Decision**: Liquid Clustering on `customer_id` for the **incremental silver tables** (`silver_customer_interactions`, `silver_customer_transactions`). Not applied to the gold table.
 
-**Rationale**: BI tools (Power BI, Tableau) filter and join on `customer_id`. Liquid Clustering automatically co-locates files by `customer_id` without requiring a manual OPTIMIZE job or upfront knowledge of the data distribution.
+**Rationale for silver**: Each hourly MERGE needs to locate matching `customer_id` rows in the target table. With Liquid Clustering on `customer_id` (which is also the `unique_key`), Delta skips files that don't contain the affected IDs instead of scanning the whole table. Files accumulate across hourly runs, so clustering genuinely improves both MERGE performance and the downstream gold full-refresh join.
+
+**Why not gold**: The gold table is a full refresh — every hourly rebuild wipes and rewrites all files from scratch. There is no accumulated disorder to cluster. At current scale (100k customers), the entire table fits in 2–5 Parquet files and every query reads them all regardless of layout. Liquid Clustering would also be lazy (clustering applied at OPTIMIZE time), but OPTIMIZE only runs weekly — meaning the gold table would be unclustered for up to 167 hours between maintenance runs. Revisit if customer count scales to millions and the table spans enough files for meaningful file skipping.
 
 **Trade-off vs Z-Ordering**: Z-Ordering requires explicit `OPTIMIZE ZORDER BY` runs and degrades over time as new data arrives. Liquid Clustering is self-maintaining. See `clustering_comparison.md` for the full comparison.
 
@@ -178,22 +250,24 @@ See [`workflow_backfill.tf`](../terraform/databricks-workflows/workflow_backfill
 
 ## 10. Performance Optimization Strategies
 
-### 10.1 Liquid Clustering (Gold Table)
+### 10.1 Liquid Clustering (Incremental Silver Tables)
 
-Covered in detail in §4 and [`clustering_comparison.md`](clustering_comparison.md). The short version: Liquid Clustering on `customer_id` is self-maintaining — no manual `OPTIMIZE ZORDER BY` job needed. BI queries that filter or join on `customer_id` benefit from automatic file co-location.
+Covered in detail in §4 and [`clustering_comparison.md`](clustering_comparison.md). The short version: Liquid Clustering on `customer_id` is applied to the incremental silver tables — no manual `OPTIMIZE ZORDER BY` job needed. MERGE operations and the downstream gold join both benefit from file co-location on the cluster key.
 
 ### 10.2 Small File Compaction (Incremental Silver Tables)
 
-`silver_customer_interactions` and `silver_customer_transactions` use incremental merge. Each hourly run writes a small set of new/updated Parquet files. Over time this accumulates thousands of small files, degrading read performance for the gold full-refresh join.
+`silver_customer_interactions` and `silver_customer_transactions` use incremental merge. Each hourly run writes a small set of new/updated Parquet files. Over time this accumulates small files, degrading read performance for the gold full-refresh join.
 
-**Mitigation**: Run `OPTIMIZE` on both tables after each incremental merge. This is handled as a post-hook in the hourly workflow — after `build_silver_interactions` and `build_silver_transactions` complete, an `OPTIMIZE` step compacts files before `build_gold_customer_360` runs.
+**Mitigation**: Run `OPTIMIZE` on both tables once per day as part of the daily 2 AM job (`workflow_daily_dimensions.tf`), in parallel with the dimension table builds.
 
 ```sql
 OPTIMIZE silver_customer_interactions;
 OPTIMIZE silver_customer_transactions;
 ```
 
-Without this, the gold table rebuild reads fragmented files on every hourly run. At 887k+ transaction rows growing continuously, this compounds quickly.
+**Why daily and not hourly**: Each hourly incremental delta is small — only changed customers are written, producing a handful of files per run. Reading 100k pre-aggregated silver rows across a day's worth of small files is still fast; the gold full-refresh is not meaningfully degraded within a single day. Running `OPTIMIZE` after every hourly merge would cost 24× the compute for diminishing returns. Daily compaction caps fragmentation at 24 hourly file sets and resets it each morning before the next day's runs begin.
+
+The weekly maintenance job (`workflow_weekly_maintenance.tf`) runs an additional `OPTIMIZE` pass on Sundays — on an already-compacted table this is effectively a no-op, but it serves as a safety net and also triggers `VACUUM` to remove old file versions.
 
 **Target file size**: Delta defaults to 128 MB per file. No override is applied here — the default is appropriate for the current data volume. Revisit if table size exceeds ~100 GB.
 
@@ -228,3 +302,33 @@ Cluster sizes are defined in Terraform and should be reviewed if source volumes 
 Databricks caches Delta table scan results in memory on the cluster. The gold table (`customer_360`) benefits from this when BI tools issue repeated queries within the same cluster session — the first query pays the scan cost, subsequent queries are served from cache.
 
 **Implication for scheduling**: The hourly gold rebuild invalidates the cache. BI queries issued immediately after a rebuild will pay a full scan. If query latency at the top of the hour is a concern, consider pre-warming the cache by running a lightweight `SELECT COUNT(*) FROM customer_360` as a post-build step.
+
+---
+
+## 11. Production Readiness Gaps
+
+The following items are known gaps between the current implementation and a fully hardened production deployment.
+
+### 11.1 PII Exposure — No Column Masking or Row-Level Security
+
+**Gap**: The gold table exposes sensitive personal data — `first_name`, `last_name`, `email`, `date_of_birth`, `mobile_clean` — without column-level masking or row-level security (RLS). Any principal with `SELECT` on `customer_360` reads raw PII.
+
+**Risk**: In a banking context this is a compliance exposure (GDPR, BSP, or equivalent data protection obligations). An analytics team member should not have the same access to raw names and dates of birth as a regulated marketing system.
+
+**Remediation options**:
+1. **Dynamic data masking** (Unity Catalog): Attach a masking policy to PII columns so non-privileged roles see a tokenised or redacted value.
+2. **Row-level security** (Unity Catalog row filters): Restrict visible rows per role if customer-level access scoping is required (e.g. relationship managers seeing only their portfolio).
+3. **Separate analytics view**: Create a non-PII view over `customer_360` that excludes or hashes identifying columns for self-serve analytics consumers.
+
+Until one of these is in place, access to `customer_360` should be restricted to explicitly approved service accounts and data engineers.
+
+### 11.2 No Data Freshness SLA
+
+**Gap**: `_ingested_at` watermarks and `_gold_updated_at` are tracked per row (see §2 and §3 for the refresh cadence), but there is no formal SLA defined and no alerting if a scheduled run is delayed or missed.
+
+**Risk**: BI consumers have no reliable signal that the data is current. A failed hourly run goes undetected until a downstream user notices a stale `customer_status` or `customer_segment` value.
+
+**Remediation**:
+1. Define a freshness SLA per source (e.g. `silver_customer_transactions` must be no more than 90 minutes stale).
+2. Add `dbt source freshness` blocks to `sources.yml` with `warn_after` and `error_after` thresholds tied to the SLA.
+3. Add a Databricks workflow alert (email or PagerDuty) on job failure and add a post-build check that errors if `MAX(_gold_updated_at)` is older than the SLA window.

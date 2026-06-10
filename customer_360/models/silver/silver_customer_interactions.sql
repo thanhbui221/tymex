@@ -2,7 +2,8 @@
     config(
         materialized='incremental',
         unique_key='customer_id',
-        incremental_strategy='merge'
+        incremental_strategy='merge',
+        liquid_clustered_by=['customer_id']
     )
 }}
 

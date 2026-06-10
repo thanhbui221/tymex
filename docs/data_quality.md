@@ -58,38 +58,38 @@ Purpose: validate completeness and correctness of the final reporting table.
 | `customer_id` | `unique` + `not_null` + `relationships → silver_customers` | Every customer in silver must appear exactly once in gold |
 | `first_name`, `last_name`, `email`, `age`, `days_since_signup` | `not_null` | Mandatory demographics must survive the JOIN |
 | `total_products`, `total_interactions`, `total_transactions` | `not_null` | COALESCE'd to 0 in gold — NULL here means the COALESCE failed |
-| `customer_status` | `not_null` + `accepted_values` (`Active`, `Inactive`) | Segmentation must always resolve to a known value |
+| `customer_status` | `not_null` + `accepted_values` (`Never Active`, `Active`, `At Risk`, `Dormant`) | Segmentation must always resolve to a known value |
 | `customer_segment` | `not_null` + `accepted_values` (`Premium`, `Standard`, `Basic`) | Unknown segments would break BI filters and dashboards |
 
 ### Custom business rule tests (`tests/`)
 
-Purpose: verify that business logic is correctly implemented, not just that columns are populated. These tests fail if any rows are returned. Tests are split by layer and run as dedicated tasks in the pipeline — bronze tests gate silver builds, silver tests gate the gold build, gold tests run last.
+Purpose: verify that business logic is correctly implemented, not just that columns are populated. dbt's built-in tests (`unique`, `not_null`, `accepted_values`) check column-level properties — they cannot express cross-column or cross-table business rules. These tests fill that gap. They fail if any rows are returned. Tests are split by layer and run as dedicated tasks in the pipeline — bronze tests gate silver builds, silver tests gate the gold build, gold tests run last.
 
 **Bronze** (`test_bronze` task)
 
 **`assert_transaction_product_customer_match`**
-- LEFT JOINs `bronze_transaction_history` to `bronze_product_enrollments` on `product_id` and selects rows where `p.customer_id IS NULL OR t.customer_id <> p.customer_id`.
-- Guards against transactions referencing a product enrolled to a different customer — would corrupt product-type breakdowns (`credit_card_transaction_value`, `savings_transaction_value`) in silver.
+- **What it checks**: Returns any transaction where the `product_id` either doesn't exist in `bronze_product_enrollments` (`p.customer_id IS NULL`) or belongs to a different customer (`t.customer_id <> p.customer_id`). Test passes when zero rows are returned.
+- **Why needed**: A transaction row has both a `customer_id` and a `product_id`. The bronze `relationships` test on `product_id` only confirms the product *exists* — it cannot confirm the product belongs to the *same customer*. If customer A has a transaction on a product enrolled to customer B, the silver model would silently attribute customer B's credit card activity to customer A when joining on `product_id`. The bronze FK test would pass and never catch it.
 
 **Silver** (`test_silver` task)
 
 **`assert_customer_360_transaction_values_consistent`**
-- Selects any customer from `silver_customer_transactions` where `round(total_transaction_value, 2) <> round(total_debit_value + total_credit_value, 2)`.
-- Guards against arithmetic drift in the aggregation logic — `total_transaction_value` must always equal the sum of its debit and credit components.
+- **What it checks**: Returns any customer in `silver_customer_transactions` where `round(total_transaction_value, 2) <> round(total_debit_value + total_credit_value, 2)`. Test passes when zero rows are returned.
+- **Why needed**: `total_transaction_value = SUM(ABS(amount))`, `total_debit_value = SUM(ABS(amount)) WHERE amount < 0`, `total_credit_value = SUM(ABS(amount)) WHERE amount > 0` — mathematically, `total` must equal `debit + credit`. If a CASE condition is wrong or zero-amount transactions are handled differently, all three columns can be individually non-null and `accepted_values`-clean while their relationship is broken. No built-in test can express "column A must equal column B + column C".
 
 **Gold** (`test_gold` task)
 
 **`assert_active_customers_have_recent_activity`**
-- Selects any customer where `customer_status = 'Active'` but `days_since_last_activity > 90` or `last_activity_date IS NULL`; or where `is_active_customer = true` but `customer_status <> 'Active'`; or where `customer_status = 'Never Active'` but `last_activity_date IS NOT NULL`.
-- Guards against a regression in the `customer_status` / `is_active_customer` derivation — all three flags must be internally consistent.
+- **What it checks**: Returns any customer from `customer_360` that hits one of three contradiction cases: (1) `customer_status = 'Active'` but `last_activity_date IS NULL`, `days_since_last_activity > 90`, or `is_active_customer <> true`; (2) `is_active_customer = true` but `last_activity_date IS NULL`, `days_since_last_activity > 90`, or `customer_status <> 'Active'`; (3) `customer_status = 'Never Active'` but `last_activity_date IS NOT NULL`. Test passes when zero rows are returned.
+- **Why needed**: `customer_status`, `is_active_customer`, and `last_activity_date` are three separate derived fields that must be internally consistent. A `not_null` or `accepted_values` test on each individually would pass even if they contradict each other — e.g. `customer_status = 'Active'` but `is_active_customer = false`. If the 90-day threshold logic is ever edited incorrectly, this test catches the regression before it reaches BI consumers.
 
 **`assert_premium_customers_meet_criteria`**
-- Selects any customer where `customer_segment = 'Premium'` but `has_credit_card <> true` or `total_transaction_value < 100,000`.
-- Guards against a regression in the segmentation logic — Premium must require both conditions simultaneously.
+- **What it checks**: Returns any customer from `customer_360` where `customer_segment = 'Premium'` but either `has_credit_card <> true` or `total_transaction_value < 100,000`. Test passes when zero rows are returned.
+- **Why needed**: The `accepted_values` test confirms `customer_segment` is always one of `Premium/Standard/Basic` — but cannot verify that the right customers landed in the right bucket. If the CASE evaluation order is broken (e.g. Standard evaluated before Premium), a high-value credit card holder would be misclassified as Standard and the schema test would never flag it. This test directly audits the segmentation rule itself.
 
 **`assert_no_negative_counts`**
-- Selects any customer where `age`, `days_since_signup`, `total_products`, `total_interactions`, `total_transactions`, `credit_card_count`, `savings_count`, or any transaction/interaction count or value column is negative.
-- Guards against bad DATEDIFF results (e.g. future dates in source), sign inversion bugs, or aggregation errors producing impossible counts.
+- **What it checks**: Returns any customer from `customer_360` where any of these 19 columns is negative: `age`, `days_since_signup`, `days_since_last_activity`, `total_products`, `credit_card_count`, `savings_count`, `total_interactions`, `email_interactions`, `chat_interactions`, `call_interactions`, `total_transactions`, `debit_count`, `credit_count`, `total_transaction_value`, `total_debit_value`, `total_credit_value`, `credit_card_transaction_value`, `savings_transaction_value`, `credit_card_transaction_count`. Test passes when zero rows are returned.
+- **Why needed**: Counts and durations are physically impossible to be negative, but `not_null` passes for `-5`. They can go negative due to future dates in source data (`days_since_signup` negative if `signup_date > CURRENT_DATE`), a sign inversion bug in aggregation, or a DATEDIFF direction flip. This test adds the lower-bound constraint that `not_null` cannot express, and serves as an early warning for dirty source data before it silently distorts downstream metrics.
 
 ---
 
@@ -128,13 +128,7 @@ Purpose: verify that business logic is correctly implemented, not just that colu
 
 ---
 
-### ~~Issue 3 — `'Call'` Interaction Type Unhandled in Silver~~ `[RESOLVED]`
-
-`call_interactions` column has been added to `silver_customer_interactions` and propagated to `customer_360`. All three channels (Email, Chat, Call) are now broken out. `last_interaction_type` is upper-cased and validated with `accepted_values: ['EMAIL', 'CHAT', 'CALL']` in the silver schema.
-
----
-
-### Issue 4 — High Rate of Negative Closing Balances `[MEDIUM]`
+### Issue 3 — High Rate of Negative Closing Balances `[MEDIUM]`
 
 **Finding:** 59.1% of transactions (524,585 / 886,971) have a negative `closing_balance`. Range: -822,708 to +144,706.
 
@@ -149,7 +143,7 @@ Purpose: verify that business logic is correctly implemented, not just that colu
 
 ---
 
-### Issue 5 — ~1,120 Non-Standard Phone Numbers `[LOW]`
+### Issue 4 — ~1,120 Non-Standard Phone Numbers `[MEDIUM]`
 
 **Finding:** 1,120 phone numbers (1.1%) are neither `09...` (local format) nor `+63...` (international Philippines format).
 
@@ -163,7 +157,7 @@ Purpose: verify that business logic is correctly implemented, not just that colu
 
 ---
 
-### Issue 6 — Coverage Gaps (Customers with No Activity) `[LOW / EXPECTED]`
+### Issue 5 — Coverage Gaps (Customers with No Activity) `[LOW / EXPECTED]`
 
 **Finding:** 27,385 customers (27.4%) have no CRM history; 23,120 customers (23.1%) have no transaction history.
 
@@ -176,6 +170,20 @@ Purpose: verify that business logic is correctly implemented, not just that colu
 **Remediation:**
 1. Confirm with business whether "enrolled but never transacted" customers should be a distinct segment (e.g. `Dormant`) separate from `Inactive`.
 2. No data fix required — this reflects real customer behaviour; NULL handling is correct in current models.
+
+---
+
+### Issue 6 — `mobile_clean` Empty String Not Tested `[LOW]`
+
+**Finding:** `silver_customers.mobile_clean` strips all non-numeric characters via `REGEXP_REPLACE(mobile, '[^0-9]', '')`. If the raw value contains only formatting characters (e.g. `+`, `-`, spaces), the output is an empty string (`''`) rather than NULL. Approximately 1.1% of records have non-standard mobile formatting and are candidates for this edge case.
+
+**Impact on business metrics:**
+- No impact on current metrics — `mobile_clean` is not used in any aggregation or segmentation logic.
+- Downstream outreach systems that guard against NULL with `IS NOT NULL` will receive an empty string and attempt contact on a blank number, causing silent delivery failures.
+
+**Remediation:**
+1. Add an `expression_is_true` test on `silver_customers.mobile_clean: "mobile_clean != ''"` (or a custom singular test).
+2. Consider converting empty strings to NULL at source: `NULLIF(REGEXP_REPLACE(mobile, '[^0-9]', ''), '')` in `silver_customers.sql`.
 
 ---
 
@@ -197,11 +205,10 @@ Purpose: verify that business logic is correctly implemented, not just that colu
 
 | # | Limitation | Impact |
 |---|---|---|
-| 1 | No `call_interactions` breakdown | 10% of CRM interaction volume is invisible in channel reporting (see Issue 3) |
-| 2 | `customer_status` and `days_since_*` metrics are timezone-sensitive | Customers near the 90-day boundary may be misclassified until Issue 1 is resolved |
-| 3 | No `Dormant` segment | Customers with products but zero activity are lumped into `Basic` or `Inactive` — may not reflect business intent |
-| 4 | `silver_customers` and `silver_customer_products` are full-refresh — no historical snapshots | Point-in-time customer demographics or product history cannot be reconstructed from the current model |
-| 5 | `assert_no_negative_counts` does not cover `days_since_last_interaction` or `days_since_last_transaction` | These could go negative if source timestamps are in the future; not currently tested |
+| 1 | `customer_status` and `days_since_*` metrics are timezone-sensitive | Customers near the 90-day / 180-day boundary may be misclassified until Issue 1 is resolved |
+| 2 | `silver_customers` and `silver_customer_products` are full-refresh — no historical snapshots | Point-in-time customer demographics or product history cannot be reconstructed from the current model |
+| 3 | `assert_no_negative_counts` does not cover `days_since_last_interaction` or `days_since_last_transaction` | These could go negative if source timestamps are in the future; not currently tested |
+| 4 | `mobile_clean` empty string not tested | Downstream outreach systems using `IS NOT NULL` will receive a blank number and fail silently (see Issue 7) |
 
 ---
 

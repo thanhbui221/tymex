@@ -6,7 +6,7 @@
 |-------------|----------|
 | Data Model Design (ERD, schemas, grain) | [`data_model_design.md`](data_model_design.md) |
 | Data Lineage (flow, source-to-target, dependencies) | [`data_lineage.md`](data_lineage.md) · [`data_lineage.svg`](data_lineage.svg) |
-| Data Quality (findings, impact, remediation) | [`data_quality.md`](data_quality.md) |
+| Data Quality (tests, findings, impact, remediation) | [`data_quality.md`](data_quality.md) |
 | Business Metrics (definitions, rationale, edge cases) | [`business_metrics.md`](business_metrics.md) |
 | Design Decisions (architecture, trade-offs, performance) | [`design_decisions.md`](design_decisions.md) · [`clustering_comparison.md`](clustering_comparison.md) |
 
@@ -36,11 +36,12 @@ Bronze uses `LEFT JOIN` at the gold layer so every customer in `silver_customers
 
 | | |
 |---|---|
-| **Definition** | Customer with at least one CRM interaction **or** financial transaction in the past 90 days |
-| **Field** | `customer_status` = `'Active'` / `'Inactive'` |
-| **Logic** | `days_since_last_interaction <= 90 OR days_since_last_transaction <= 90` |
-| **Rationale** | 90 days = one quarter; a customer engaging at least once per quarter is considered retained |
-| **Edge case** | Customer with no interactions AND no transactions → both fields are NULL → evaluated as Inactive |
+| **Definition** | Customer status based on recency of last CRM interaction or financial transaction |
+| **Field** | `customer_status` = `'Never Active'` / `'Active'` / `'At Risk'` / `'Dormant'` |
+| **Boolean** | `is_active_customer` = TRUE when `customer_status = 'Active'` |
+| **Logic** | No activity ever → `'Never Active'`; last activity ≤ 90 days → `'Active'`; ≤ 180 days → `'At Risk'`; else → `'Dormant'` |
+| **Rationale** | 90 days = one quarter (retained); 180 days = two quarters (at-risk before churn action); beyond = dormant |
+| **Edge case** | Customer with no interactions AND no transactions → `last_activity_date` is NULL → `'Never Active'` |
 
 ### Customer Segmentation
 
@@ -56,6 +57,28 @@ Rules are evaluated top-down; a customer meeting Premium criteria is not re-eval
 
 **Why `total_transaction_value` and not `net_transaction_amount` for the Premium threshold**: `total_transaction_value` captures throughput — a customer who moves 200k through their account is treated as high-value even if debits and credits roughly cancel out. Using `net_transaction_amount` would penalise active credit card spenders (net debit position) and reward passive savers with a single large deposit, which does not reflect engagement. `net_transaction_amount` is more appropriate for liquidity or risk analysis. If the business intent is specifically to reward net depositors, an additional condition on `net_transaction_amount > 0` could be added — confirm with business stakeholders.
 
+### Customer Value Segment
+
+| Segment | Criteria | Rationale |
+|---------|----------|-----------|
+| `High Value` | `total_transaction_value >= 150,000` | Top-tier activity volume |
+| `Medium Value` | `total_transaction_value >= 50,000` | Mid-tier activity volume |
+| `Low Value` | `total_transaction_value > 0` | Some activity but below medium threshold |
+| `No Transaction` | `total_transaction_value = 0` | No recorded financial activity |
+
+Field: `customer_value_segment`. Evaluated from `total_transaction_value` (absolute sum). Thresholds are configurable via dbt vars (`high_value_transaction_threshold`, `medium_value_transaction_threshold`).
+
+### Engagement Segment
+
+| Segment | Criteria | Rationale |
+|---------|----------|-----------|
+| `Highly Engaged` | `total_interactions >= 10` | Frequent CRM contact — active service relationship |
+| `Moderately Engaged` | `total_interactions >= 3` | Regular but not frequent contact |
+| `Low Engagement` | `total_interactions > 0` | Some CRM history |
+| `No CRM Engagement` | `total_interactions = 0` | No recorded CRM interactions |
+
+Field: `engagement_segment`. Thresholds configurable via `highly_engaged_interaction_threshold`, `moderately_engaged_interaction_threshold`.
+
 ### Product Metrics
 
 | Metric | Calculation | Notes |
@@ -64,20 +87,25 @@ Rules are evaluated top-down; a customer meeting Premium criteria is not re-eval
 | `credit_card_count` | COUNT of enrollments where product_type = 'CREDIT CARD' | Case-insensitive match |
 | `savings_count` | COUNT of enrollments where product_type = 'SAVINGS' | Case-insensitive match |
 | `max_credit_limit` | MAX(limit) across credit card enrollments | NULL for customers with no credit card; 0.0 for savings-only |
+| `total_credit_limit` | SUM(limit) across credit card enrollments | 0 for customers with no credit card |
 | `first_product_date` | MIN(enrollment_date) | Earliest product relationship with the bank |
+| `latest_product_date` | MAX(enrollment_date) | Most recent product enrollment |
+| `product_segment` | Derived from `has_credit_card` and `has_savings` | `'Savings + Credit Card'`, `'Credit Card Only'`, `'Savings Only'`, `'No Product'` |
 
 ### Transaction Metrics
 
 | Metric | Calculation | Notes |
 |--------|-------------|-------|
 | `total_transactions` | COUNT(*) | COALESCE to 0 in gold |
-| `total_transaction_value` | SUM(transaction_amount) | Positive = net credit, negative = net debit position |
-| `avg_transaction_amount` | AVG(transaction_amount) | Can be negative |
+| `total_transaction_value` | SUM(ABS(transaction_amount)) | Always >= 0; represents activity volume, not net position |
+| `net_transaction_amount` | SUM(transaction_amount) | Signed sum — positive = net inflow, negative = net outflow |
+| `avg_transaction_value` | AVG(ABS(transaction_amount)) | Always >= 0 |
 | `max_balance` / `min_balance` | MAX/MIN(closing_balance) | Range of account balance experienced |
 | `last_transaction_date` | MAX(transaction_date) | Most recent financial activity |
 | `days_since_last_transaction` | DATEDIFF(DAY, last_transaction_date, CURRENT_DATE()) | Used in active customer definition |
-| `credit_card_transaction_value` | SUM(amount) where product_type = 'CREDIT CARD' | Resolved via JOIN to bronze_product_enrollments |
-| `savings_transaction_value` | SUM(amount) where product_type = 'SAVINGS' | Resolved via JOIN to bronze_product_enrollments |
+| `first_transaction_date` | MIN(transaction_date) | Earliest financial activity |
+| `credit_card_transaction_value` | SUM(ABS(amount)) where product_type = 'CREDIT CARD' | Resolved via JOIN to bronze_product_enrollments |
+| `savings_transaction_value` | SUM(ABS(amount)) where product_type = 'SAVINGS' | Resolved via JOIN to bronze_product_enrollments |
 
 ### Interaction Metrics
 
@@ -86,7 +114,10 @@ Rules are evaluated top-down; a customer meeting Premium criteria is not re-eval
 | `total_interactions` | COUNT(*) | COALESCE to 0 in gold |
 | `email_interactions` | COUNT where interaction_type = 'EMAIL' | Case-insensitive |
 | `chat_interactions` | COUNT where interaction_type = 'CHAT' | Case-insensitive |
+| `call_interactions` | COUNT where interaction_type = 'CALL' | Case-insensitive |
+| `first_interaction_date` | MIN(interaction_date) | Earliest CRM contact |
 | `last_interaction_date` | MAX(interaction_date) | Most recent CRM contact |
+| `last_interaction_type` | MAX_BY(interaction_type, interaction_date) | Channel of most recent interaction |
 | `days_since_last_interaction` | DATEDIFF(DAY, last_interaction_date, CURRENT_DATE()) | Used in active customer definition |
 
 ---
@@ -109,46 +140,9 @@ Incremental models use `_ingested_at` as the watermark rather than the business 
 
 ### Clustering Strategy
 
-The gold table uses Liquid Clustering on `customer_id` (Databricks Runtime 13.3+). This is automatic — no separate OPTIMIZE job needed. See [`clustering_comparison.md`](clustering_comparison.md) for the comparison with Z-Ordering.
+The incremental silver tables (`silver_customer_interactions`, `silver_customer_transactions`) use Liquid Clustering on `customer_id`. This improves hourly MERGE performance (cluster key matches the merge key) and the gold full-refresh join. The gold table does not use Liquid Clustering — it is a full refresh that rewrites all files each run, so clustering provides no benefit at current scale. See [`clustering_comparison.md`](clustering_comparison.md) and [`design_decisions.md`](design_decisions.md) §4 for detail.
 
 ### Bronze Sources per Silver Model
 
 Most silver models source from exactly one bronze model. The exception is `silver_customer_transactions`, which LEFT JOINs `bronze_product_enrollments` on `product_id` to resolve product-type breakdowns (credit card vs savings transaction values and counts). All other cross-model joins happen only at the gold layer on `customer_id`. See [`design_decisions.md`](design_decisions.md).
 
----
-
-## Data Quality Tests
-
-### Bronze Layer (`models/bronze/schema.yml`)
-- `unique` + `not_null` on all primary keys
-- `not_null` on `_ingested_at` (source freshness sentinel)
-- `relationships`: `transaction_history.product_id` → `product_enrollments.product_id`
-
-### Silver Layer (`models/silver/schema.yml`)
-- `unique` + `not_null` on `customer_id` across all silver models
-- `not_null` on key aggregated fields (`last_interaction_date`, `last_transaction_date`, `total_*`)
-- `relationships`: `silver_customer_products.customer_id` → `bronze_customer_raw.customer_id`
-
-### Gold Layer (`models/gold/schema.yml`)
-- `unique` + `not_null` on `customer_id`
-- `not_null` on demographic fields (`first_name`, `last_name`, `email`)
-- `accepted_values` on `customer_status` and `customer_segment`
-- `relationships`: `customer_360.customer_id` → `silver_customers.customer_id`
-
-### Custom Business Rule Tests (`tests/`)
-
-Tests are split by layer and run as dedicated tasks — bronze tests gate silver builds, silver tests gate gold.
-
-| Test | Layer | Rule |
-|------|-------|------|
-| `assert_transaction_product_customer_match` | Bronze | Transactions must reference a product enrolled to the same customer |
-| `assert_customer_360_transaction_values_consistent` | Silver | `total_transaction_value = total_debit_value + total_credit_value` |
-| `assert_active_customers_have_recent_activity` | Gold | Active customers must have interaction or transaction within 90 days; `is_active_customer` and `customer_status` must be internally consistent |
-| `assert_premium_customers_meet_criteria` | Gold | Premium customers must have `has_credit_card = true` AND `total_transaction_value >= 100,000` |
-| `assert_no_negative_counts` | Gold | age, days_since_signup, total_products, total_interactions, total_transactions, and all count/value columns must be >= 0 |
-
----
-
-## Data Quality
-
-See [`data_quality.md`](data_quality.md) for the full findings — issues discovered, impact on business metrics, and remediation strategies.

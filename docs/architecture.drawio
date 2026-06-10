@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="arch-pipeline" name="Data Pipeline Architecture">
-        <mxGraphModel dx="606" dy="527" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+        <mxGraphModel dx="606" dy="278" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -79,17 +79,17 @@
                 <mxCell id="sv2" value="silver_customer_products&#xa;table · full refresh · daily" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="443" y="188" width="168" height="40" as="geometry"/>
                 </mxCell>
-                <mxCell id="sv3" value="silver_customer_interactions&#xa;incremental merge · hourly" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
-                    <mxGeometry x="443" y="268" width="168" height="40" as="geometry"/>
+                <mxCell id="sv3" value="silver_customer_interactions&#xa;incremental merge · hourly&#xa;Liquid Clustered · customer_id" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="443" y="268" width="168" height="55" as="geometry"/>
                 </mxCell>
-                <mxCell id="sv4" value="silver_customer_transactions&#xa;incremental merge · hourly" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
-                    <mxGeometry x="443" y="348" width="168" height="40" as="geometry"/>
+                <mxCell id="sv4" value="silver_customer_transactions&#xa;incremental merge · hourly&#xa;Liquid Clustered · customer_id" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="443" y="348" width="168" height="55" as="geometry"/>
                 </mxCell>
                 <mxCell id="gate-sv" value="✓ test_silver" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce4ec;strokeColor=#c62828;fontColor=#c62828;fontSize=9;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="623" y="58" width="44" height="30" as="geometry"/>
                 </mxCell>
-                <mxCell id="gd1" value="customer_360&#xa;table · full refresh · hourly&#xa;Liquid Clustered on customer_id" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#f9a825;fontColor=#333333;fontStyle=1;fontSize=10;" parent="1" vertex="1">
-                    <mxGeometry x="683" y="218" width="145" height="55" as="geometry"/>
+                <mxCell id="gd1" value="customer_360&#xa;table · full refresh · hourly" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#f9a825;fontColor=#333333;fontStyle=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="683" y="218" width="145" height="40" as="geometry"/>
                 </mxCell>
                 <mxCell id="gate-gd" value="✓ test_gold" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce4ec;strokeColor=#c62828;fontColor=#c62828;fontSize=9;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="840" y="58" width="44" height="30" as="geometry"/>
@@ -151,7 +151,12 @@
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="e15" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#f9a825;" parent="1" source="gd1" target="cn2" edge="1">
-                    <mxGeometry relative="1" as="geometry"/>
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="840" y="238"/>
+                            <mxPoint x="840" y="290"/>
+                        </Array>
+                    </mxGeometry>
                 </mxCell>
                 <mxCell id="orch-title" value="Orchestration (Terraform → Databricks Workflows)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=13;" parent="1" vertex="1">
                     <mxGeometry x="20" y="468" width="450" height="22" as="geometry"/>
@@ -162,8 +167,8 @@
                 <mxCell id="tf" value="Terraform&#xa;databricks-workflows/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontColor=#1b5e20;fontStyle=1;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="30" y="590" width="130" height="50" as="geometry"/>
                 </mxCell>
-                <mxCell id="job-daily" value="Daily — 2 AM&#xa;① build silver_customers&#xa;② build silver_customer_products" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;align=left;" parent="1" vertex="1">
-                    <mxGeometry x="195" y="505" width="210" height="60" as="geometry"/>
+                <mxCell id="job-daily" value="Daily — 2 AM&#xa;① build silver_customers → silver_products&#xa;② OPTIMIZE silver_interactions + silver_transactions&#xa;③ DROP dbt audit tables (quota hygiene)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="195" y="505" width="215" height="75" as="geometry"/>
                 </mxCell>
                 <mxCell id="job-hourly" value="Hourly — :00&#xa;① test_bronze (referential integrity)&#xa;② build silver_interactions + silver_transactions&#xa;③ test_silver → build customer_360&#xa;④ test_gold (business rules)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;align=left;" parent="1" vertex="1">
                     <mxGeometry x="425" y="497" width="255" height="80" as="geometry"/>
@@ -171,8 +176,8 @@
                 <mxCell id="job-backfill" value="Backfill — on-demand (PAUSED)&#xa;params: backfill_start / backfill_end&#xa;① backfill silver (windowed or full refresh)&#xa;② test_silver → backfill customer_360&#xa;③ test_gold" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#f57f17;fontColor=#333333;fontSize=10;align=left;" parent="1" vertex="1">
                     <mxGeometry x="700" y="497" width="240" height="80" as="geometry"/>
                 </mxCell>
-                <mxCell id="job-weekly" value="Weekly — Sun 3 AM&#xa;OPTIMIZE + VACUUM&#xa;all Delta tables" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontColor=#333333;fontSize=10;align=left;" parent="1" vertex="1">
-                    <mxGeometry x="960" y="510" width="155" height="60" as="geometry"/>
+                <mxCell id="job-weekly" value="Weekly — Sun 3 AM&#xa;OPTIMIZE silver + customer_360&#xa;VACUUM all tables (168hr retention)&#xa;clears hourly rebuild file versions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontColor=#333333;fontSize=10;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="960" y="505" width="170" height="75" as="geometry"/>
                 </mxCell>
                 <mxCell id="et1" value="provisions" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#2e7d32;fontSize=9;fontColor=#2e7d32;" parent="1" source="tf" target="job-daily" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
