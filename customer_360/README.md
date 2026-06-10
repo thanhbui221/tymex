@@ -21,7 +21,7 @@ customer_360/
     │   ├── silver_customer_interactions.sql # Aggregated CRM metrics (incremental)
     │   └── silver_customer_transactions.sql # Aggregated tx metrics (incremental)
     └── gold/
-        └── customer_360.sql                 # Unified customer view (incremental)
+        └── customer_360.sql                 # Unified customer view (table)
 ```
 
 ## Materialization Strategy
@@ -33,7 +33,7 @@ customer_360/
 | `silver_customer_products` | table | Slow-changing, full refresh acceptable |
 | `silver_customer_interactions` | incremental (merge) | High-volume events; only process new rows |
 | `silver_customer_transactions` | incremental (merge) | High-volume events; only process new rows |
-| `customer_360` | incremental (merge) | Recalculate only customers with upstream changes |
+| `customer_360` | table | |
 
 ## Setup
 
