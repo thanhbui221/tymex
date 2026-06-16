@@ -120,9 +120,9 @@ Incremental upsert becomes worth revisiting only if customer count grows to a sc
 | `silver_customer_transactions` | Hourly | Transactions drive `customer_status`, `customer_segment` (Premium ≥100k threshold), and `customer_value_segment` — all three affect real-time business decisions and BI dashboards. A large transaction processed at 2 PM should update a customer's segment before end-of-day reporting, not the following morning. Incremental merge is justified by source volume (887k+ rows) — only changed customers are reprocessed each hour, capping compute cost regardless of total table size. |
 | `customer_360` | Hourly | Inherits from the hourly incrementals. Refreshing gold less frequently than its silver inputs would mean BI consumers see stale status/segment values even after silver has updated. |
 
-**Scheduling dependency**: The daily job runs at 2 AM. The hourly job also fires at 2 AM. Because the hourly job depends on silver models that are rebuilt by the daily job, the daily job must complete before the 2 AM hourly run picks up fresh dimension data. In practice, the daily full-refresh is fast (100k rows) and completes well within the hour window — but this is an implicit dependency, not an enforced one. If the daily job ever runs long, the 2 AM hourly run will use the previous day's dimension data.
+**Scheduling dependency (enforced)**: The daily dimensions job runs at 2 AM; the hourly job's schedule deliberately **skips 2 AM** (`0 0 0-1,3-23 * * ?`). After the daily job rebuilds `silver_customers` and `silver_customer_products`, its final task triggers the hourly pipeline via a Databricks `run_job_task`, which waits for the full hourly run (incrementals → gold → tests) to complete. This makes the daily→hourly ordering explicit — the 2 AM gold build always sees fresh dimension data, and there is exactly one gold build at 2 AM. The other 23 hourly runs are unaffected. (Previously both jobs fired independently at 2 AM, leaving an implicit timing-based dependency where a long-running daily job could cause the 2 AM gold build to use the previous day's dimensions; that race is now removed.)
 
-**Trade-off**: Running `silver_customers` and `silver_customer_products` hourly would eliminate the implicit dependency but adds unnecessary compute — demographics and product enrollments don't change at hourly granularity.
+**Trade-off**: Running `silver_customers` and `silver_customer_products` hourly would also remove the dependency but adds unnecessary compute — demographics and product enrollments don't change at hourly granularity. Triggering the hourly pipeline from the daily job keeps dimensions on a daily cadence while still guaranteeing ordering.
 
 See [`databricks-workflows/`](../terraform/databricks-workflows/) for the Terraform schedule configuration.
 
@@ -149,6 +149,26 @@ Full analysis: [`docs/clustering_comparison.md`](clustering_comparison.md)
 **Rationale**: Failed test rows are written to a dedicated audit table in Databricks (e.g. `dbt_test__audit.not_null_silver_customers_email`). This makes DQ failures inspectable and queryable without re-running the pipeline. Particularly important for the `unique` test on `silver_customers.email` — duplicate email pairs need investigation, not silent failure.
 
 Test definitions: [`models/bronze/schema.yml`](../customer_360/models/bronze/schema.yml), [`models/silver/schema.yml`](../customer_360/models/silver/schema.yml), [`models/gold/schema.yml`](../customer_360/models/gold/schema.yml)
+
+### 5.1 Audit Schema Cleanup — `DROP SCHEMA CASCADE` Daily
+
+**Problem**: With ~169 tests all storing failures, every `dbt build` **overwrites** ~169 audit tables, and each overwrite leaves a fresh set of stale Delta files behind (the audit table only ever holds the *latest* run's failing rows). At hourly cadence these files compound fast, and they are never vacuumed. The cleanup job that drops them was running for a very long time because dropping a *managed* hive-metastore table is a **synchronous, per-file recursive delete** from object storage — multiplied across hundreds of tables, each carrying thousands of un-vacuumed files, in a serial loop.
+
+**Decision**: Keep `store_failures: true` global, but have the daily maintenance job ([`cleanup_audit_tables.py`](../databricks-scripts/maintenance/cleanup_audit_tables.py), wired into `workflow_daily_dimensions.tf`) reclaim space with a single `DROP SCHEMA IF EXISTS <audit_schema> CASCADE`. dbt recreates the schema on the next test run that produces failures.
+
+**Why this over the alternatives**: Scoping `store_failures` to a handful of tests would go further (it stops the files being created at all), but it requires per-test judgement about which failures are worth persisting and changes test artifact behaviour. Daily `DROP SCHEMA CASCADE` is cheaper to ship and keeps every audit table available for inspection.
+
+**Pros**
+- Simplest possible cleanup — one catalog statement, no `SHOW TABLES`, no per-table loop or round-trips.
+- Self-healing: dbt re-creates the schema and tables as needed, so it also resolves the Unity Catalog table-quota concern.
+- Daily cadence caps accumulation at ~24 rewrites/table before cleanup, so file counts never pile up to the multi-hour-drop levels seen before.
+- Keeps full failure-row inspectability for *all* tests (no behaviour change vs. the previous design).
+
+**Cons**
+- Does **not** go "under the floor": files are still created on every run and still physically deleted on every cleanup. The synchronous per-file deletion cost remains — it's just bounded to one day's churn instead of weeks/months, and paid once per day off-peak.
+- The audit schema is fully dropped, so failure rows are only retained until the next daily cleanup — fine for triage within a day, not for long-term history.
+- Relies on dbt recreating the schema; if a downstream process expects the audit schema to always exist between runs, it must tolerate its absence.
+- `CASCADE` is blunt: anything that ends up in that schema is removed, so the schema must remain dedicated to dbt test audits.
 
 ---
 
@@ -322,13 +342,13 @@ The following items are known gaps between the current implementation and a full
 
 Until one of these is in place, access to `customer_360` should be restricted to explicitly approved service accounts and data engineers.
 
-### 11.2 No Data Freshness SLA
+### 11.2 Data Freshness — Defined but Not Enforced
 
-**Gap**: `_ingested_at` watermarks and `_gold_updated_at` are tracked per row (see §2 and §3 for the refresh cadence), but there is no formal SLA defined and no alerting if a scheduled run is delayed or missed.
+**Current state**: `sources.yml` defines source freshness thresholds (`warn_after: 24h`, `error_after: 48h` on `_ingested_at`), and `_gold_updated_at` is tracked per row. However, no workflow runs `dbt source freshness`, so the thresholds are never evaluated and no alert fires if a scheduled run is delayed or missed.
 
 **Risk**: BI consumers have no reliable signal that the data is current. A failed hourly run goes undetected until a downstream user notices a stale `customer_status` or `customer_segment` value.
 
 **Remediation**:
-1. Define a freshness SLA per source (e.g. `silver_customer_transactions` must be no more than 90 minutes stale).
-2. Add `dbt source freshness` blocks to `sources.yml` with `warn_after` and `error_after` thresholds tied to the SLA.
-3. Add a Databricks workflow alert (email or PagerDuty) on job failure and add a post-build check that errors if `MAX(_gold_updated_at)` is older than the SLA window.
+1. Tighten the per-source SLA to match the refresh cadence — the current 24h/48h are placeholders; the hourly feeds (`crm_interactions`, `transaction_history`) should be no more than ~90 minutes stale.
+2. Wire a `dbt source freshness` task into the hourly job so the thresholds already in `sources.yml` are actually evaluated.
+3. Add a Databricks workflow alert (email or PagerDuty) on job failure and a post-build check that errors if `MAX(_gold_updated_at)` is older than the SLA window.

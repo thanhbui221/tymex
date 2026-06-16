@@ -163,8 +163,8 @@ dbt docs generate && dbt docs serve   # opens http://localhost:8080
 ## Step 5 — Deploy Workflows (Scheduled Automation)
 
 Sets up four Databricks jobs that keep the gold table current:
-- **Hourly** — incremental merge of interactions and transactions; full refresh of customer_360
-- **Daily (2 AM UTC)** — full refresh of slow-changing dimensions (silver_customers, silver_customer_products); OPTIMIZE of incremental silver tables to compact the day's small files; drop stale dbt audit tables to prevent Unity Catalog table quota exhaustion
+- **Hourly (every hour except 2 AM)** — incremental merge of interactions and transactions; full refresh of customer_360. The 2 AM run is intentionally skipped here and triggered by the daily job instead (see below), so the 2 AM gold build always runs on freshly rebuilt dimensions.
+- **Daily (2 AM UTC)** — full refresh of slow-changing dimensions (silver_customers, silver_customer_products); OPTIMIZE of incremental silver tables to compact the day's small files; drop stale dbt audit tables to prevent Unity Catalog table quota exhaustion; then triggers the hourly pipeline (`run_job_task`) once dimensions are fresh, enforcing daily→hourly ordering at 2 AM
 - **Weekly (Sun 3 AM UTC)** — OPTIMIZE + VACUUM on all tables; VACUUM is critical for customer_360 to purge stale file versions left by hourly full refreshes
 - **Backfill (manual trigger only)** — windowed or full reprocess for schema changes, bug fixes, or business rule updates
 

@@ -173,17 +173,13 @@ Purpose: verify that business logic is correctly implemented, not just that colu
 
 ---
 
-### Issue 6 — `mobile_clean` Empty String Not Tested `[LOW]`
+### Issue 6 — `mobile_clean` Empty String → NULL `[RESOLVED]`
 
-**Finding:** `silver_customers.mobile_clean` strips all non-numeric characters via `REGEXP_REPLACE(mobile, '[^0-9]', '')`. If the raw value contains only formatting characters (e.g. `+`, `-`, spaces), the output is an empty string (`''`) rather than NULL. Approximately 1.1% of records have non-standard mobile formatting and are candidates for this edge case.
+**Finding:** `silver_customers.mobile_clean` strips all non-numeric characters from the raw mobile number. If the raw value contains only formatting characters (e.g. `+`, `-`, spaces), the stripped result would be an empty string (`''`). Approximately 1.1% of records have non-standard mobile formatting.
 
-**Impact on business metrics:**
-- No impact on current metrics — `mobile_clean` is not used in any aggregation or segmentation logic.
-- Downstream outreach systems that guard against NULL with `IS NOT NULL` will receive an empty string and attempt contact on a blank number, causing silent delivery failures.
+**Resolution (implemented):** `silver_customers.sql` wraps the strip in `NULLIF(REGEXP_REPLACE(CAST(mobile AS STRING), '[^0-9]', ''), '')`, so an all-formatting value resolves to NULL rather than an empty string. Downstream `IS NOT NULL` guards therefore behave correctly and no blank numbers reach outreach systems.
 
-**Remediation:**
-1. Add an `expression_is_true` test on `silver_customers.mobile_clean: "mobile_clean != ''"` (or a custom singular test).
-2. Consider converting empty strings to NULL at source: `NULLIF(REGEXP_REPLACE(mobile, '[^0-9]', ''), '')` in `silver_customers.sql`.
+**Residual:** the resulting NULL is not separately tested. A `not_null` test is intentionally omitted — a genuinely missing or garbage mobile is a valid NULL, not a pipeline error. Add a test only if a non-NULL mobile becomes an operational requirement.
 
 ---
 
@@ -208,7 +204,7 @@ Purpose: verify that business logic is correctly implemented, not just that colu
 | 1 | `customer_status` and `days_since_*` metrics are timezone-sensitive | Customers near the 90-day / 180-day boundary may be misclassified until Issue 1 is resolved |
 | 2 | `silver_customers` and `silver_customer_products` are full-refresh — no historical snapshots | Point-in-time customer demographics or product history cannot be reconstructed from the current model |
 | 3 | `assert_no_negative_counts` does not cover `days_since_last_interaction` or `days_since_last_transaction` | These could go negative if source timestamps are in the future; not currently tested |
-| 4 | `mobile_clean` empty string not tested | Downstream outreach systems using `IS NOT NULL` will receive a blank number and fail silently (see Issue 7) |
+| 4 | `mobile_clean` resolves all-formatting values to NULL via `NULLIF` (see Issue 6, resolved); the resulting NULL is not separately tested | Acceptable — a genuinely missing mobile is a valid NULL, not an error; add a test only if a non-NULL mobile becomes an operational requirement |
 
 ---
 

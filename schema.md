@@ -52,7 +52,7 @@ product_id | customer_id | product_type | enrollment_date | limit
 **Columns:**
 - `interaction_id` (INTEGER, PRIMARY KEY): Unique interaction identifier
 - `customer_id` (INTEGER, FOREIGN KEY): References customer_raw.customer_id
-- `interaction_type` (STRING): Type of interaction (Email, Chat, Phone, etc.)
+- `interaction_type` (STRING): Type of interaction (Email, Chat, Call)
 - `interaction_date` (DATE): Date of the interaction
 
 **Sample Data:**

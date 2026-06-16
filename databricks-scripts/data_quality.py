@@ -71,7 +71,7 @@ customer_raw.groupBy("email") \
 
 # COMMAND ----------
 customer_with_age = customer_raw.withColumn(
-    "age", F.floor(F.datediff(F.current_date(), F.col("date_of_birth")) / 365)
+    "age", F.floor(F.months_between(F.current_date(), F.col("date_of_birth")) / 12)
 )
 
 customer_with_age.select(
@@ -208,7 +208,7 @@ print(f"Duplicate interaction_ids: {total_crm - distinct_iid}")
 # MAGIC %md ### 3.2 Interaction Type Distribution
 
 # COMMAND ----------
-# IMPORTANT: 'Call' type exists in data but is not counted in silver_customer_interactions
+# 'Email', 'Chat', and 'Call' are each counted individually in silver_customer_interactions
 crm_interactions.groupBy("interaction_type").count() \
     .withColumn("pct", F.round(F.col("count") / total_crm * 100, 1)) \
     .orderBy(F.col("count").desc()).show()
@@ -364,8 +364,8 @@ print("""
 ║  VALIDITY                                                                  ║
 ║  ✗ customer_raw: ~1,120 phone numbers in non-standard format               ║
 ║    (not '09...' or '+63...')                                               ║
-║  ✗ crm_interactions: 'Call' interaction type exists but is NOT             ║
-║    counted in silver_customer_interactions (only EMAIL and CHAT handled)   ║
+║  ✓ crm_interactions: 'Email', 'Chat', 'Call' all counted individually     ║
+║    in silver_customer_interactions                                         ║
 ║  ✓ Age range 18–66, no underage customers                                  ║
 ║  ✓ No negative credit limits                                               ║
 ║                                                                            ║

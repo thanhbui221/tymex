@@ -93,7 +93,7 @@ Calculated in [`silver_customer_transactions.sql`](../customer_360/models/silver
 | `net_transaction_amount` | SUM(transaction_amount) | Liquidity and risk signal — positive = net depositor, negative = net spender; NOT used in segmentation (see [Customer Segmentation](#customer-segmentation)) | Signed sum — positive = net inflow, negative = net outflow |
 | `avg_transaction_value` | AVG(ABS(transaction_amount)) | Average ticket size; distinguishes high-frequency small-value customers from low-frequency high-value ones | Always >= 0 |
 | `max_balance` / `min_balance` | MAX/MIN(closing_balance) | Balance range experienced; flags volatility and minimum liquidity across the customer's history | |
-| `current_balance` | MAX_BY(closing_balance, transaction_date) | Most recent balance snapshot; actionable for product eligibility checks and risk assessment | NULL for customers with no transactions |
+| `current_balance` | MAX_BY(closing_balance, STRUCT(transaction_ts, transaction_id)) | Most recent balance snapshot; ordered on the full timestamp (not DATE) so same-day transactions resolve correctly; actionable for product eligibility checks and risk assessment | NULL for customers with no transactions |
 | `first_transaction_date` | MIN(transaction_date) | Marks start of the financial relationship; used to measure time-to-first-transaction from signup | |
 | `last_transaction_date` | MAX(transaction_date) | Recency anchor for the 90-day active window | Most recent financial activity |
 | `days_since_last_transaction` | DATEDIFF(DAY, last_transaction_date, CURRENT_DATE()) | One of two signals in the active customer definition (alongside `days_since_last_interaction`) | Used in active customer definition |
@@ -170,11 +170,11 @@ Calculated in [`silver_customers.sql`](../customer_360/models/silver/silver_cust
 
 | Metric | Calculation | Rationale | Notes |
 |--------|-------------|-----------|-------|
-| `age` | DATEDIFF(YEAR, date_of_birth, CURRENT_DATE()) | Age-based segmentation and regulatory compliance (e.g. product eligibility); recalculated on every full refresh so no backfill is needed as customers age | Recalculated on each full refresh; YEAR-level precision (not exact birthday) |
+| `age` | FLOOR(MONTHS_BETWEEN(CURRENT_DATE(), date_of_birth) / 12) | Age-based segmentation and regulatory compliance (e.g. product eligibility); recalculated on every full refresh so no backfill is needed as customers age | Recalculated on each full refresh; birthday-accurate (counts only completed years via MONTHS_BETWEEN) |
 | `days_since_signup` | DATEDIFF(DAY, signup_date, CURRENT_DATE()) | Input to `customer_lifecycle_stage`; recalculated on each refresh so lifecycle stage advances automatically | Recalculated on each full refresh |
-| `mobile_clean` | REGEXP_REPLACE(mobile, '[^0-9]', '') | Normalises mobile numbers for downstream deduplication and outreach systems that require digits-only format | Strips all non-numeric characters; ~1.1% of records have non-standard formatting |
+| `mobile_clean` | NULLIF(REGEXP_REPLACE(mobile, '[^0-9]', ''), '') | Normalises mobile numbers for downstream deduplication and outreach systems that require digits-only format | Strips all non-numeric characters; an all-formatting value resolves to NULL (not empty string); ~1.1% of records have non-standard formatting |
 
 **Edge cases:**
-- `age` uses year-level precision — a customer whose birthday is later in the current year is counted as one year younger than their true age until the birthday passes. This is acceptable for segmentation but should not be used for exact age-gating without a day-level check.
+- `age` is birthday-accurate: `FLOOR(MONTHS_BETWEEN(CURRENT_DATE(), date_of_birth) / 12)` counts only completed years, so a customer whose birthday has not yet occurred this year is correctly counted as one year younger. It is refreshed only on each batch run, so for strict regulatory age-gating a day-level recomputation at query time is still recommended.
 - `days_since_signup` will be 0 for customers who signed up today and negative if `signup_date` is in the future (data quality issue). Negative values indicate dirty source data and are caught by the `assert_no_negative_counts` test.
-- `mobile_clean` can produce an empty string (`''`) if the raw value contains only formatting characters. Downstream consumers should treat empty string the same as NULL.
+- `mobile_clean` returns NULL (not an empty string) when the raw value contains only formatting characters — the `NULLIF(..., '')` wrapper converts the empty result to NULL, so downstream `IS NOT NULL` guards behave correctly.

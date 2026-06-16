@@ -60,7 +60,11 @@ aggregated as (
         min(interaction_date) as first_interaction_date,
         max(interaction_date) as last_interaction_date,
 
-        max_by(interaction_type, interaction_date) as last_interaction_type,
+        -- interaction_date is date-only in the source (no time), so customers with
+        -- multiple interactions on their last day cannot be ordered by true recency.
+        -- Tie-break on interaction_id makes the choice deterministic/reproducible
+        -- rather than arbitrary; it does not recover true intra-day order (none exists).
+        max_by(interaction_type, struct(interaction_date, interaction_id)) as last_interaction_type,
 
         max(_ingested_at) as _ingested_at
 

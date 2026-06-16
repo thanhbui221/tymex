@@ -19,7 +19,7 @@
 
 ### Syntax:
 ```sql
-CREATE TABLE customer_360
+CREATE TABLE silver_customer_transactions
 CLUSTER BY (customer_id)
 AS SELECT ...
 ```
@@ -29,7 +29,7 @@ AS SELECT ...
 {{ config(
     materialized='incremental',
     unique_key='customer_id',
-    cluster_by=['customer_id']
+    liquid_clustered_by=['customer_id']
 ) }}
 ```
 
@@ -58,10 +58,10 @@ AS SELECT ...
 ### Syntax:
 ```sql
 -- Create table (no clustering yet)
-CREATE TABLE customer_360 AS SELECT ...
+CREATE TABLE silver_customer_transactions AS SELECT ...
 
 -- Manually run OPTIMIZE periodically
-OPTIMIZE customer_360 ZORDER BY (customer_id);
+OPTIMIZE silver_customer_transactions ZORDER BY (customer_id);
 ```
 
 ### dbt implementation:
@@ -109,10 +109,10 @@ If you're currently using Z-Ordering and want to migrate:
 
 ```sql
 -- 1. Remove Z-ordering
-ALTER TABLE customer_360 ALTER COLUMN customer_id DROP STATISTICS;
+ALTER TABLE silver_customer_transactions ALTER COLUMN customer_id DROP STATISTICS;
 
 -- 2. Add liquid clustering
-ALTER TABLE customer_360 CLUSTER BY (customer_id);
+ALTER TABLE silver_customer_transactions CLUSTER BY (customer_id);
 
 -- 3. Let next writes apply clustering (automatic)
 ```
@@ -121,52 +121,44 @@ ALTER TABLE customer_360 CLUSTER BY (customer_id);
 
 ## Recommendation for Customer 360 Project
 
-**Use Liquid Clustering (Option A)** because:
+**Liquid Clustering is applied to the two incremental silver tables** — `silver_customer_interactions` and `silver_customer_transactions` — clustered on `customer_id`:
 
-1. **Databricks Community Edition supports Runtime 13.3+** ✓
-2. **Lower operational overhead** - no separate OPTIMIZE jobs needed
-3. **Better cost efficiency** - incremental clustering vs full table scans
-4. **Future-proof** - Databricks is deprecating Z-Ordering focus
+1. **Databricks Runtime 13.3+ is available** ✓
+2. **Lower operational overhead** — no separate `OPTIMIZE ZORDER` jobs
+3. **Better cost efficiency** — incremental clustering vs full-table scans
+4. **MERGE benefits directly** — each hourly merge locates target `customer_id` rows; clustering on the same key lets Delta skip non-matching files as files accumulate across runs
 
-**Only use Z-Ordering if:**
-- You're stuck on older Databricks Runtime (< 13.3)
-- You have existing infrastructure with Z-Ordering and no migration window
+**It is NOT applied to the gold `customer_360` table.** Gold is a full-refresh `table` — every run drops and rewrites all files from scratch, so there is no accumulated disorder to cluster, and at 100k customers the table fits in a handful of files that every query reads in full regardless of layout. Liquid Clustering is also lazy (applied at OPTIMIZE time, which only runs weekly), so gold would sit unclustered between maintenance runs anyway. See [`design_decisions.md`](design_decisions.md) §4 for the full rationale. Revisit if customer count reaches the millions.
 
 ---
 
-## Implementation for customer_360
+## Implementation
+
+### Incremental silver tables (clustered)
 
 ```sql
--- models/gold/customer_360.sql
+-- models/silver/silver_customer_transactions.sql (same config on silver_customer_interactions)
 {{
     config(
         materialized='incremental',
         unique_key='customer_id',
         incremental_strategy='merge',
-        cluster_by=['customer_id'],  -- Liquid Clustering
-        file_format='delta'
+        liquid_clustered_by=['customer_id']
     )
 }}
-
-SELECT
-    c.customer_id,
-    c.first_name,
-    c.last_name,
-    ...
-FROM {{ ref('silver_customers') }} c
-LEFT JOIN {{ ref('silver_customer_products') }} p ON c.customer_id = p.customer_id
-LEFT JOIN {{ ref('silver_customer_interactions') }} i ON c.customer_id = i.customer_id
-LEFT JOIN {{ ref('silver_customer_transactions') }} t ON c.customer_id = t.customer_id
-
-{% if is_incremental() %}
-WHERE c.customer_id IN (
-    SELECT DISTINCT customer_id FROM {{ ref('silver_customer_interactions') }}
-    WHERE last_interaction_date > (SELECT MAX(last_interaction_date) FROM {{ this }})
-    UNION
-    SELECT DISTINCT customer_id FROM {{ ref('silver_customer_transactions') }}
-    WHERE last_transaction_date > (SELECT MAX(last_transaction_date) FROM {{ this }})
-)
-{% endif %}
 ```
 
-No post-hooks needed! Clustering happens automatically on writes.
+`liquid_clustered_by` is the dbt-databricks config for Liquid Clustering — applied automatically on write, no post-hooks needed.
+
+### Gold table (NOT clustered, full refresh)
+
+```sql
+-- models/gold/customer_360.sql
+{{
+    config(
+        materialized='table'
+    )
+}}
+```
+
+No clustering and no incremental block — gold is rebuilt in full each run as a join of four pre-aggregated, one-row-per-customer silver tables, so it is consistent and self-healing by construction.

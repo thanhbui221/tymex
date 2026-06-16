@@ -1,9 +1,14 @@
-# Hourly workflow: Refresh incremental models (interactions, transactions, customer_360)
+# Hourly workflow: incremental silver (interactions, transactions) + full-refresh gold (customer_360)
 resource "databricks_job" "hourly_incremental_refresh" {
   name = "Customer360 - Hourly Incremental Refresh"
 
   schedule {
-    quartz_cron_expression = "0 0 * * * ?"  # Every hour at :00
+    # Every hour at :00 EXCEPT 2 AM. The 2 AM run is triggered by the daily
+    # dimensions job (workflow_daily_dimensions.tf) AFTER it rebuilds
+    # silver_customers / silver_customer_products, so the gold build always sees
+    # fresh dimension data. This makes the daily→hourly ordering explicit and
+    # removes the race between the two independently-scheduled jobs at 2 AM.
+    quartz_cron_expression = "0 0 0-1,3-23 * * ?"
     timezone_id            = "UTC"
     pause_status           = "UNPAUSED"
   }

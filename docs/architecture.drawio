@@ -167,10 +167,10 @@
                 <mxCell id="tf" value="Terraform&#xa;databricks-workflows/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontColor=#1b5e20;fontStyle=1;fontSize=10;" parent="1" vertex="1">
                     <mxGeometry x="30" y="590" width="130" height="50" as="geometry"/>
                 </mxCell>
-                <mxCell id="job-daily" value="Daily — 2 AM&#xa;① build silver_customers → silver_products&#xa;② OPTIMIZE silver_interactions + silver_transactions&#xa;③ DROP dbt audit tables (quota hygiene)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;align=left;" parent="1" vertex="1">
-                    <mxGeometry x="195" y="505" width="215" height="75" as="geometry"/>
+                <mxCell id="job-daily" value="Daily — 2 AM&#xa;① build silver_customers → silver_products&#xa;② trigger Hourly pipeline (run_job_task, waits)&#xa;③ OPTIMIZE silver_interactions + silver_transactions&#xa;④ DROP dbt audit tables (quota hygiene)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="195" y="505" width="215" height="95" as="geometry"/>
                 </mxCell>
-                <mxCell id="job-hourly" value="Hourly — :00&#xa;① test_bronze (referential integrity)&#xa;② build silver_interactions + silver_transactions&#xa;③ test_silver → build customer_360&#xa;④ test_gold (business rules)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;align=left;" parent="1" vertex="1">
+                <mxCell id="job-hourly" value="Hourly — :00 (every hour except 2 AM)&#xa;① test_bronze (referential integrity)&#xa;② build silver_interactions + silver_transactions&#xa;③ test_silver → build customer_360&#xa;④ test_gold (business rules)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontColor=#333333;fontSize=10;align=left;" parent="1" vertex="1">
                     <mxGeometry x="425" y="497" width="255" height="80" as="geometry"/>
                 </mxCell>
                 <mxCell id="job-backfill" value="Backfill — on-demand (PAUSED)&#xa;params: backfill_start / backfill_end&#xa;① backfill silver (windowed or full refresh)&#xa;② test_silver → backfill customer_360&#xa;③ test_gold" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e1;strokeColor=#f57f17;fontColor=#333333;fontSize=10;align=left;" parent="1" vertex="1">
@@ -189,6 +189,9 @@
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="et4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#2e7d32;" parent="1" source="tf" target="job-weekly" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="et-trigger" value="triggers 2 AM run&#xa;(run_job_task, enforces order)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1565c0;strokeWidth=2;dashed=1;fontSize=9;fontColor=#1565c0;fontStyle=1;" parent="1" source="job-daily" target="job-hourly" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="leg-box" value="" style="rounded=1;strokeColor=#cccccc;fillColor=#fafafa;" parent="1" vertex="1">

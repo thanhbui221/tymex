@@ -1,12 +1,16 @@
 # Databricks notebook source
 # Maintenance script: VACUUM Delta tables
 
-import sys
 from pyspark.sql import SparkSession
 
-# Get parameters
-database_name = sys.argv[1] if len(sys.argv) > 1 else None
-retention_hours = int(sys.argv[2]) if len(sys.argv) > 2 else 168  # Default 7 days
+# Notebook tasks receive parameters via widgets (base_parameters in the workflow),
+# not sys.argv — argv holds the kernel launch args in this context. The workflow
+# passes the schema under the "schema" key.
+dbutils.widgets.text("schema", "", "Schema whose tables to vacuum")
+dbutils.widgets.text("retention_hours", "168", "Vacuum retention window in hours")
+
+database_name = dbutils.widgets.get("schema") or None
+retention_hours = int(dbutils.widgets.get("retention_hours") or 168)  # Default 7 days
 
 if not database_name:
     raise ValueError("Database name parameter is required")

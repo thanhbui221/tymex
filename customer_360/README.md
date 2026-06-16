@@ -33,7 +33,7 @@ customer_360/
 | `silver_customer_products` | table | Slow-changing, full refresh acceptable |
 | `silver_customer_interactions` | incremental (merge) | High-volume events; only process new rows |
 | `silver_customer_transactions` | incremental (merge) | High-volume events; only process new rows |
-| `customer_360` | table | |
+| `customer_360` | table | Full refresh — time-relative metrics must recompute for every customer each run (see `docs/design_decisions.md` §2) |
 
 ## Setup
 
@@ -67,16 +67,16 @@ dbt debug
 ## Running
 
 ```bash
-# Build all models
-dbt run
+# Build all models and run their tests (production uses `dbt build` for fail-fast)
+dbt build
 
 # Build a specific layer
-dbt run --select bronze.*
-dbt run --select silver.*
-dbt run --select gold.*
+dbt build --select bronze.*
+dbt build --select silver.*
+dbt build --select gold.*
 
 # Full refresh (ignore incremental state)
-dbt run --full-refresh
+dbt build --full-refresh
 
 # Run tests
 dbt test
@@ -87,7 +87,7 @@ dbt docs generate && dbt docs serve
 
 ## Data Quality Tests
 
-Bronze layer validates raw source integrity (not_null, unique on primary keys, referential integrity between `transaction_history` and `product_enrollments`). Source freshness alerts after 24h (warn) / 48h (error).
+Bronze layer validates raw source integrity (not_null, unique on primary keys, referential integrity between `transaction_history` and `product_enrollments`). Source freshness thresholds are defined in `sources.yml` (24h warn / 48h error); run `dbt source freshness` to evaluate them (not yet wired into a scheduled job — see `docs/design_decisions.md` §11.2).
 
 See `models/bronze/schema.yml` for test definitions.
 
@@ -96,8 +96,8 @@ See `models/bronze/schema.yml` for test definitions.
 **Active Customer**: interaction or transaction within 90 days.
 
 **Customer Segment**:
-- `Premium` — 3+ products AND total transaction value > 100,000
-- `Standard` — 2+ products
+- `Premium` — has a credit card AND total transaction value ≥ 100,000
+- `Standard` — 2+ products (any type)
 - `Basic` — all others
 
 For full metric definitions, rationale, edge cases, and design decisions see [`docs/business_logic.md`](../docs/business_logic.md).

@@ -117,7 +117,7 @@ Field: `engagement_segment`. Thresholds configurable via `highly_engaged_interac
 | `call_interactions` | COUNT where interaction_type = 'CALL' | Case-insensitive |
 | `first_interaction_date` | MIN(interaction_date) | Earliest CRM contact |
 | `last_interaction_date` | MAX(interaction_date) | Most recent CRM contact |
-| `last_interaction_type` | MAX_BY(interaction_type, interaction_date) | Channel of most recent interaction |
+| `last_interaction_type` | MAX_BY(interaction_type, STRUCT(interaction_date, interaction_id)) | Channel of most recent interaction; same-day ties broken deterministically by interaction_id |
 | `days_since_last_interaction` | DATEDIFF(DAY, last_interaction_date, CURRENT_DATE()) | Used in active customer definition |
 
 ---

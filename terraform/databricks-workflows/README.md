@@ -6,8 +6,8 @@ Production-grade orchestration for the Customer 360 dbt project using Databricks
 
 This Terraform configuration automates:
 
-1. **Daily refresh** - Slow-changing dimensions (customers, products)
-2. **Hourly refresh** - Incremental models (interactions, transactions, customer_360)
+1. **Daily refresh** - Slow-changing dimensions (customers, products); then triggers the hourly pipeline so the 2 AM gold build runs on fresh dimensions
+2. **Hourly refresh** - Incremental silver (interactions, transactions) + full-refresh gold (customer_360)
 3. **Weekly maintenance** - OPTIMIZE and VACUUM Delta tables
 4. **Monitoring** - Job duration alerts and row count tracking
 
@@ -18,13 +18,15 @@ Workflows:
 ├── Daily (2 AM UTC)
 │   ├── silver_customers (full refresh)
 │   ├── silver_customer_products (full refresh)
-│   └── data quality tests
+│   ├── OPTIMIZE silver + cleanup audit tables (parallel)
+│   └── → triggers the Hourly pipeline (run_job_task) once dimensions are fresh
 │
-├── Hourly (every hour)
+├── Hourly (every hour EXCEPT 2 AM — the 2 AM run is triggered by the Daily job)
+│   ├── bronze referential-integrity test (gate)
 │   ├── silver_customer_interactions (incremental)
 │   ├── silver_customer_transactions (incremental)
-│   ├── customer_360 (incremental)
-│   └── data quality tests
+│   ├── customer_360 (full refresh)
+│   └── data quality tests (silver gate + gold)
 │
 └── Weekly (Sunday 3 AM UTC)
     ├── OPTIMIZE tables (interactions, transactions, customer_360)
@@ -148,8 +150,8 @@ terraform output daily_workflow_id
 
 Check that workflows are scheduled:
 
-1. **Daily Dimensions Refresh**: 2 AM UTC daily
-2. **Hourly Incremental Refresh**: Every hour
+1. **Daily Dimensions Refresh**: 2 AM UTC daily (triggers the hourly pipeline as its final step)
+2. **Hourly Incremental Refresh**: Every hour except 2 AM (the 2 AM run is triggered by the daily job)
 3. **Weekly Maintenance**: Sunday 3 AM UTC
 
 ## Monitoring

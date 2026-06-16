@@ -38,7 +38,12 @@ base_transactions as (
         abs(cast(t.transaction_amount as decimal(18, 2))) as abs_transaction_amount,
 
         cast(t.closing_balance as decimal(18, 2)) as closing_balance,
+
+        -- DATE is used for day-level metrics (first/last txn date, days_since_*)
+        -- to avoid sub-day timezone drift. The full timestamp is preserved
+        -- separately as transaction_ts purely for ordering current_balance.
         cast(t.transaction_date as date) as transaction_date,
+        cast(t.transaction_date as timestamp) as transaction_ts,
 
         upper(trim(pe.product_type)) as product_type,
 
@@ -85,7 +90,10 @@ aggregated as (
         min(transaction_date) as first_transaction_date,
         max(transaction_date) as last_transaction_date,
 
-        max_by(closing_balance, transaction_date) as current_balance,
+        -- order by full timestamp so same-day transactions resolve to the true
+        -- latest balance; tie-break on transaction_id for determinism when two
+        -- transactions share an identical timestamp
+        max_by(closing_balance, struct(transaction_ts, transaction_id)) as current_balance,
 
         sum(
             case

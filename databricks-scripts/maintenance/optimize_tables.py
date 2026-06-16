@@ -1,11 +1,12 @@
 # Databricks notebook source
 # Maintenance script: OPTIMIZE Delta tables
 
-import sys
 from pyspark.sql import SparkSession
 
-# Get table name parameter
-table_name = sys.argv[1] if len(sys.argv) > 1 else None
+# Notebook tasks receive parameters via widgets (base_parameters in the workflow),
+# not sys.argv — argv holds the kernel launch args in this context.
+dbutils.widgets.text("table_name", "", "Fully-qualified table to optimize")
+table_name = dbutils.widgets.get("table_name") or None
 
 if not table_name:
     raise ValueError("Table name parameter is required")

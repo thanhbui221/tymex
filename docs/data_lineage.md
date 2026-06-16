@@ -71,7 +71,7 @@ Bronze models are thin `SELECT *` views over raw Delta source tables. No transfo
 | product_id | STRING | FK → bronze_product_enrollments | transaction_history | product_id | STRING | Direct | Not null; used in gold JOIN for product-type breakdown |
 | transaction_amount | DECIMAL(18,2) | — | transaction_history | transaction_amount | DECIMAL(18,2) | Direct | Positive = credit; negative = debit |
 | closing_balance | DECIMAL(18,2) | — | transaction_history | closing_balance | DECIMAL(18,2) | Direct | Can be negative (overdraft) |
-| transaction_date | STRING | — | transaction_history | transaction_date | STRING | Direct | Timezone-naive; cast to DATE in gold |
+| transaction_date | STRING | — | transaction_history | transaction_date | STRING | Direct | Timezone-naive timestamp; cast to DATE for day-level metrics, full timestamp retained (`transaction_ts`) for `current_balance` ordering |
 | _ingested_at | TIMESTAMP | — | system | — | — | Injected at ingestion | Watermark sentinel |
 
 ---
@@ -123,7 +123,7 @@ Grain: 1 row per customer. Full refresh every hourly run. Source columns trace b
 | call_interactions | INT | — | bronze_crm_interactions | interaction_type | STRING | `SUM(CASE WHEN UPPER(TRIM(interaction_type)) = 'CALL' THEN 1 ELSE 0 END)` | COALESCE to 0 |
 | first_interaction_date | DATE | — | bronze_crm_interactions | interaction_date | STRING | `MIN(CAST(interaction_date AS DATE))` | NULL for no-interaction customers |
 | last_interaction_date | DATE | — | bronze_crm_interactions | interaction_date | STRING | `MAX(CAST(interaction_date AS DATE))` | NULL for no-interaction customers |
-| last_interaction_type | STRING | — | bronze_crm_interactions | interaction_type, interaction_date | STRING | `MAX_BY(UPPER(TRIM(interaction_type)), interaction_date)` | NULL for no-interaction customers; arbitrary if tie on same date |
+| last_interaction_type | STRING | — | bronze_crm_interactions | interaction_type, interaction_date | STRING | `MAX_BY(UPPER(TRIM(interaction_type)), STRUCT(interaction_date, interaction_id))` | NULL for no-interaction customers; interaction_date is date-only, so same-day ties are broken deterministically by interaction_id |
 
 #### From `bronze_transaction_history` (+ `bronze_product_enrollments` LEFT JOIN on `product_id`)
 
@@ -139,7 +139,7 @@ Grain: 1 row per customer. Full refresh every hourly run. Source columns trace b
 | total_credit_value | DECIMAL(18,2) | — | bronze_transaction_history | transaction_amount | DECIMAL(18,2) | `SUM(ABS(transaction_amount)) WHERE transaction_amount > 0` | COALESCE to 0 |
 | max_balance | DECIMAL(18,2) | — | bronze_transaction_history | closing_balance | DECIMAL(18,2) | `MAX(closing_balance)` | NULL for no-transaction customers; can be negative (overdraft) |
 | min_balance | DECIMAL(18,2) | — | bronze_transaction_history | closing_balance | DECIMAL(18,2) | `MIN(closing_balance)` | NULL for no-transaction customers |
-| current_balance | DECIMAL(18,2) | — | bronze_transaction_history | closing_balance, transaction_date | DECIMAL(18,2), STRING | `MAX_BY(closing_balance, transaction_date)` | Balance at most recent transaction; NULL for no-transaction customers |
+| current_balance | DECIMAL(18,2) | — | bronze_transaction_history | closing_balance, transaction_date | DECIMAL(18,2), TIMESTAMP | `MAX_BY(closing_balance, STRUCT(transaction_ts, transaction_id))` | Balance at most recent transaction; ordered on the full timestamp (not DATE) so same-day transactions resolve correctly, tie-broken by transaction_id; NULL for no-transaction customers |
 | first_transaction_date | DATE | — | bronze_transaction_history | transaction_date | STRING | `MIN(CAST(transaction_date AS DATE))` | NULL for no-transaction customers |
 | last_transaction_date | DATE | — | bronze_transaction_history | transaction_date | STRING | `MAX(CAST(transaction_date AS DATE))` | NULL for no-transaction customers |
 | credit_card_transaction_value | DECIMAL(18,2) | — | bronze_transaction_history + bronze_product_enrollments | transaction_amount, product_type | DECIMAL, STRING | `SUM(ABS(transaction_amount)) WHERE product_type = 'CREDIT CARD'` | JOIN on product_id; COALESCE to 0 |

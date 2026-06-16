@@ -49,14 +49,19 @@ Column-level test definitions for each layer live in the corresponding `schema.y
 | `silver_customers` | `mobile_clean`, `age`, `days_since_signup` |
 | `silver_customer_products` | `total_products`, `credit_card_count`, `savings_count`, `max_credit_limit`, `first_product_date` |
 | `silver_customer_interactions` | `total_interactions`, `email_interactions`, `chat_interactions`, `last_interaction_date`, `days_since_last_interaction` |
-| `silver_customer_transactions` | `total_transactions`, `total_transaction_value`, `avg_transaction_amount`, `max_balance`, `min_balance`, `last_transaction_date`, `days_since_last_transaction`, `credit_card_transaction_value`, `savings_transaction_value`, `credit_card_transaction_count`, `savings_transaction_count` |
+| `silver_customer_transactions` | `total_transactions`, `total_transaction_value`, `net_transaction_amount`, `avg_transaction_value`, `max_balance`, `min_balance`, `current_balance`, `last_transaction_date`, `credit_card_transaction_value`, `savings_transaction_value`, `credit_card_transaction_count`, `savings_transaction_count` |
 
 **Gold** — joins all four silver models into `customer_360`; adds:
 
 | Column | Description |
 |--------|-------------|
-| `customer_status` | `Active` / `Inactive` — based on 90-day activity window |
-| `customer_segment` | `Premium` / `Standard` / `Basic` — based on product count and transaction value |
+| `is_active_customer` | Boolean — TRUE when `customer_status = 'Active'` |
+| `customer_status` | `Never Active` / `Active` / `At Risk` / `Dormant` — by days since last activity (≤90 / ≤180 / else; NULL = Never Active) |
+| `customer_segment` | `Premium` / `Standard` / `Basic` — Premium = has credit card AND ≥100k transaction value; Standard = 2+ products; else Basic |
+| `customer_value_segment` | `High Value` / `Medium Value` / `Low Value` / `No Transaction` — by total transaction value |
+| `engagement_segment` | `Highly Engaged` / `Moderately Engaged` / `Low Engagement` / `No CRM Engagement` — by interaction count |
+| `customer_lifecycle_stage` | `New` / `Growing` / `Established` / `Mature` — by days since signup |
+| `credit_card_activity_to_limit_ratio` | Credit card transaction value ÷ max credit limit |
 
 ---
 
