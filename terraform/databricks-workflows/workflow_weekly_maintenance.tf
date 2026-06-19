@@ -43,6 +43,7 @@ resource "databricks_job" "weekly_maintenance" {
       notebook_path = "${var.dbt_project_path}/maintenance/optimize_tables.py"
       base_parameters = {
         table_name = "customer_360_db.customer_360"
+        zorder_by  = "customer_id"
       }
     }
 
